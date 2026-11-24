@@ -64,30 +64,65 @@ test("「いつでも」は、円盤のどこでも当たる", () => {
 });
 
 const half = () => 0.5;
+/** ばらつき 0 の乱数（ボックス＝ミュラー法で cos(π/2) = 0）。 */
+const zero = () => 0.25;
 
-test("真ん中で打つと、まっすぐフェンスのホームランの区画へ", () => {
-  const r = simulateHit(0, 600, half);
+test("真ん中で打つと（ばらつきが無ければ）、まっすぐフェンスのホームランの区画へ", () => {
+  const r = simulateHit(0, 600, zero);
   assert.equal(r.where.kind, "wall");
   assert.equal(r.n, 4);
   assert.ok(r.frames.length > 10);
 });
 
 test("早く振ると左、遅く振ると右へ飛ぶ", () => {
-  const early = simulateHit(-250, 600, half);
-  const late = simulateHit(250, 600, half);
+  const early = simulateHit(-250, 600, zero);
+  const late = simulateHit(250, 600, zero);
   assert.ok(early.stop.x < 500 && late.stop.x > 500, `${early.stop.x} / ${late.stop.x}`);
 });
 
-test("端で打つと弱く、内野の穴に落ちてアウト", () => {
-  const r = simulateHit(480, 600, half);
+test("端で打つと弱く、フェンスに届かずに止まってアウト", () => {
+  const r = simulateHit(480, 600, zero);
   assert.equal(r.n, OUT);
-  assert.equal(r.where.kind, "pocket");
+  assert.notEqual(r.where.kind, "wall");
 });
 
-test("フェンスの区画は真ん中ほど長打", () => {
+test("野手の位置の穴に、ゆっくり来たボールが落ちたらアウト", () => {
+  // 一塁手の穴をねらう: いろいろな強さで、穴に落ちる回がある。
+  let pocketOuts = 0;
+  for (let i = 0; i < 400; i += 1) {
+    let k = i;
+    const r = simulateHit(200 + (i % 40) * 10, 600, () => ((k = (k * 16807 + 11) % 2147483647) / 2147483647));
+    if (r.where.kind === "pocket") {
+      assert.equal(r.n, OUT);
+      pocketOuts += 1;
+    }
+  }
+  assert.ok(pocketOuts > 0);
+});
+
+test("でたらめに押しても、上手に押しても、アウトは出る（終わらない試合にならない）", () => {
+  let seed = 3;
+  const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const outRate = (spreadMs) => {
+    let outs = 0;
+    const N = 3000;
+    for (let i = 0; i < N; i += 1) {
+      const u = Math.max(1e-9, rng());
+      const o = Math.max(-600, Math.min(600, Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng()) * spreadMs));
+      if (simulateHit(o, 600, rng).n === OUT) outs += 1;
+    }
+    return outs / N;
+  };
+  assert.ok(outRate(80) > 0.15, "上手な人でもアウトが出る");
+  assert.ok(outRate(400) > 0.4);
+});
+
+test("フェンスの区画は真ん中ほど長打で、あいだにアウトの区画", () => {
   assert.equal(wallResult(0), 4);
   assert.equal(wallResult(-10), 3);
+  assert.equal(wallResult(15), OUT);
   assert.equal(wallResult(20), 2);
+  assert.equal(wallResult(-30), OUT);
   assert.equal(wallResult(-40), 1);
 });
 
@@ -207,16 +242,16 @@ function atBat(s, offset) {
   const after = s.turn.since + TURN_GUARD_MS + 10;
   const k = Math.ceil((after - bb.sweetAt) / bb.period);
   const t = bb.sweetAt + k * bb.period + offset;
-  s = reduce(s, { type: "press", playerId: who, t, pid: "x" }, t, half);
+  s = reduce(s, { type: "press", playerId: who, t, pid: "x" }, t, zero);
   assert.equal(s.baseball.phase, "flight", "当たっていない");
-  s = reduce(s, { type: "tick" }, s.baseball.resultAt, half);
+  s = reduce(s, { type: "tick" }, s.baseball.resultAt, zero);
   assert.equal(s.baseball.phase, "result");
-  return reduce(s, { type: "tick" }, s.baseball.nextAt, half);
+  return reduce(s, { type: "tick" }, s.baseball.nextAt, zero);
 }
 
 test("野球（アウトなし）: 打って止まったら点が入り、次の人へ", () => {
   let s = room(["a", "b"]);
-  s = reduce(s, { type: "settings", game: "baseball", key: "outs", value: false }, 0);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "together" }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 1000);
   assert.equal(s.baseball.mode, "together");
   assert.equal(s.turn.playerId, "a");
@@ -231,7 +266,7 @@ test("野球（アウトなし）: 打って止まったら点が入り、次の
 
 test("野球（アウトなし）: アウトの場所に止まってもヒットにする", () => {
   let s = room(["a"]);
-  s = reduce(s, { type: "settings", game: "baseball", key: "outs", value: false }, 0);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "together" }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 0);
   s = atBat(s, 480);
   assert.equal(s.baseball.log.at(-1).n, 1);
@@ -248,31 +283,61 @@ test("野球: 空振りは数えない", () => {
   assert.equal(s.events.at(-1).contact, false);
 });
 
-test("野球（チーム）: 3アウトでチェンジ、決めた回でおわって勝ち負け", () => {
+test("野球（イニング制）: 3アウトでチェンジ、決めた回でおわって勝ち負け", () => {
   let s = room(["a", "b"]);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "innings" }, 0);
   s = reduce(s, { type: "settings", game: "baseball", key: "innings", value: 1 }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 0);
-  assert.equal(s.baseball.mode, "team");
+  assert.equal(s.baseball.mode, "innings");
   assert.deepEqual(s.baseball.teams, ["red", "blue"]);
   assert.equal(s.baseball.batting, "red");
-  // 赤: ホームラン1本のあと、3アウト。
-  s = atBat(s, 0);
-  assert.equal(s.baseball.score.red, 1);
+  // 赤: 3アウトでチェンジ。
   for (let i = 0; i < 3; i += 1) s = atBat(s, 480);
   assert.equal(s.baseball.batting, "blue");
   assert.equal(s.baseball.half, 1);
   assert.equal(s.turn.playerId, "b");
-  assert.ok(s.events.some((e) => e.kind === "change"));
-  // 青: 3アウト → 1回でおわり。赤の勝ち。
-  for (let i = 0; i < 3; i += 1) s = atBat(s, 480);
+  assert.equal(s.events.filter((e) => e.kind === "change").at(-1).reason, "outs");
+  // 青: ホームラン（1点）のあと2アウト。1人のチームなので3打席で打ち切り → 1回でおわり。青の勝ち。
+  s = atBat(s, 0);
+  assert.equal(s.baseball.score.blue, 1);
+  s = atBat(s, 480);
+  s = atBat(s, 480);
+  assert.equal(s.baseball.phase, "done");
+  assert.equal(s.baseball.winner, "blue");
+  assert.equal(s.turn, null);
+});
+
+test("野球（打席制・既定）: 赤青が1人ずつ交互に打ち、点はヒットの種類で、決めた数で おわり", () => {
+  let s = room(["a", "b"]);
+  s = reduce(s, { type: "start", game: "baseball" }, 0);
+  assert.equal(s.baseball.mode, "atbats");
+  assert.equal(s.turn.playerId, "a");
+  s = atBat(s, 0); // ホームラン = 4点
+  assert.equal(s.baseball.score.red, 4);
+  assert.deepEqual(s.baseball.bases, [null, null, null]);
+  assert.equal(s.turn.playerId, "b");
+  assert.equal(s.baseball.batting, "blue");
+  s = atBat(s, 480); // アウト = 0点
+  assert.equal(s.baseball.score.blue, 0);
+  assert.equal(s.turn.playerId, "a");
+  s = atBat(s, 0);
+  s = atBat(s, 0);
   assert.equal(s.baseball.phase, "done");
   assert.equal(s.baseball.winner, "red");
-  assert.equal(s.turn, null);
+});
+
+test("野球（イニング制）: アウトが無くても、打者一巡（3人より少なければ3打席）でチェンジ", () => {
+  let s = room(["a", "b"]);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "innings" }, 0);
+  s = reduce(s, { type: "start", game: "baseball" }, 0);
+  for (let i = 0; i < 3; i += 1) s = atBat(s, 0);
+  assert.equal(s.baseball.batting, "blue");
+  assert.equal(s.events.filter((e) => e.kind === "change").at(-1).reason, "round");
 });
 
 test("野球（アウトなし）: みんなが決まった数を打ったら おわり", () => {
   let s = room(["a", "b"]);
-  s = reduce(s, { type: "settings", game: "baseball", key: "outs", value: false }, 0);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "together" }, 0);
   s = reduce(s, { type: "settings", game: "baseball", key: "atBats", value: 1 }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 0);
   s = atBat(s, 0);
@@ -283,7 +348,7 @@ test("野球（アウトなし）: みんなが決まった数を打ったら �
 
 test("野球: 番の人がいなくなったら、次の人へ", () => {
   let s = room(["a", "b", "c"]);
-  s = reduce(s, { type: "settings", game: "baseball", key: "outs", value: false }, 0);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "together" }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 0);
   s = reduce(s, { type: "leave", id: "a" }, 100);
   assert.equal(s.turn.playerId, "b");
@@ -341,7 +406,7 @@ test("見るだけの人には、番が来ない", () => {
   s = reduce(s, { type: "join", player: { id: "a", name: "a" } }, 0);
   s = reduce(s, { type: "join", player: { id: "w", name: "w", role: "watch" } }, 0);
   s = reduce(s, { type: "join", player: { id: "b", name: "b" } }, 0);
-  s = reduce(s, { type: "settings", game: "baseball", key: "outs", value: false }, 0);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "together" }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 0);
   const seen = new Set();
   for (let i = 0; i < 4; i += 1) {
@@ -409,7 +474,7 @@ test("部屋の番号は6けた、札は推測できない文字列", () => {
 
 test("ホストが外した人は、名前の列から消え、二度と入れない", () => {
   let s = room(["a", "b"]);
-  s = reduce(s, { type: "settings", game: "baseball", key: "outs", value: false }, 0);
+  s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "together" }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 0);
   s = reduce(s, { type: "setTurn", id: "b" }, 10);
   s = reduce(s, { type: "remove", id: "b" }, 20);
