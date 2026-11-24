@@ -1,0 +1,21 @@
+{
+  "name": "neuro-sports",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ひとおし スポーツ — スイッチ1つで遊ぶ 野球とボッチャ。ブラウザどうしを WebRTC でつないで、みんなで遊ぶ。",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "node tests/run.mjs"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.5"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "svelte": "^5.59.1",
+    "vite": "^6.4.6"
+  }
+}
