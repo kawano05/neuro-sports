@@ -10,14 +10,16 @@
 // =====================================================================
 
 import {
-  FLIGHT_MS,
-  RUN_MS,
+  OUT,
+  OUTS_PER_HALF,
+  RESULT_MS,
   SPIN_PERIOD_MS,
   advanceRunners,
+  contactQuality,
   firstSweetAt,
   hitWindowMs,
-  judgeSwing,
   offsetFromSweet,
+  simulateHit,
 } from "./games/baseball.js";
 import {
   SWEEP_PERIOD_MS,
@@ -50,7 +52,7 @@ export const MAX_PLAYING = 8;
 export const MAX_IN_ROOM = 20;
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  baseball: Object.freeze({ speed: "normal", width: "wide", atBats: 3, rotate: "auto", cue: true }),
+  baseball: Object.freeze({ speed: "normal", width: "wide", outs: true, innings: 2, atBats: 3, rotate: "auto", cue: true }),
   boccia: Object.freeze({ speed: "normal", presses: 2, balls: 3, guide: true, cue: true }),
 });
 
@@ -292,7 +294,8 @@ function apply(s, action, now, rng) {
 /** 今の番の人を、ゲームごとの決まりで次の人へ。 */
 function passTurn(s, now, rng) {
   if (s.game === "baseball") {
-    const next = nextInOrder(activePlayers(s), s.turn?.playerId);
+    const bb = s.baseball;
+    const next = bb?.mode === "team" ? pickBatter(s, bb.batting, s.turn?.playerId ?? null) : nextInOrder(activePlayers(s), s.turn?.playerId);
     beginTurn(s, now, next?.id ?? null);
   } else {
     // ボッチャ: 同じチームの次の人へ（投げる玉は同じまま）。
@@ -309,7 +312,9 @@ function passTurn(s, now, rng) {
 /** だれの番でもないとき（はじめ・全員抜けたあと）に、番を決める。 */
 function startTurnFor(s, now, rng) {
   if (s.game === "baseball") {
-    const first = activePlayers(s)[0];
+    const bb = s.baseball;
+    if (bb?.phase === "done") return;
+    const first = bb?.mode === "team" ? pickBatter(s, bb.batting, null) : activePlayers(s)[0];
     beginTurn(s, now, first?.id ?? null);
   } else if (s.boccia && s.boccia.phase !== "end") {
     const thrower = pickThrower(s, s.boccia.current.team, null);
@@ -341,36 +346,207 @@ function beginTurn(s, now, playerId) {
 
 // ---------------------------------------------------------------------
 // 野球
+//
+// 2つの遊び方（支援者の設定「アウト」）:
+//   あり（team）… 赤・青のチームで、決めた回数まで。3アウトで攻守交代（チェンジ）。
+//                本物の野球盤のように、穴や内野で止まるとアウト。
+//   なし（together）… みんなで合計点。アウトの場所に止まってもヒットにする。
+//                ひとりが決めた回数を打ったら おわり（neuro の「へこませない」遊び方）。
+//
+// 打つ → ボールが転がる（flight）→ 止まったら結果（result）→ 少し見せて、次のボール。
+// 結果（塁・点・アウト）は、ボールが止まった時に反映する（画面と食い違わない）。
 // ---------------------------------------------------------------------
+
+function baseballTeams(s) {
+  const inPlay = TEAMS.filter((team) => activePlayers(s).some((p) => p.team === team));
+  return inPlay.length >= 2 ? [...TEAMS] : [inPlay[0] || "red"];
+}
+
+/** チームの次の打者（いなければ、遊ぶ人のだれか）。 */
+function pickBatter(s, team, afterId) {
+  const active = activePlayers(s);
+  const inTeam = s.baseball?.mode === "team" ? active.filter((p) => p.team === team) : active;
+  const pool = inTeam.length ? inTeam : active;
+  if (pool.length === 0) return null;
+  const after = afterId ?? s.baseball?.lastBatter?.[team] ?? null;
+  if (!after) return pool[0];
+  return nextInOrder(pool, after);
+}
 
 function startBaseball(s, now) {
   const set = s.settings.baseball;
   const period = SPIN_PERIOD_MS[set.speed] || SPIN_PERIOD_MS.normal;
+  const mode = set.outs ? "team" : "together";
+  const teams = baseballTeams(s);
   s.baseball = {
+    mode,
     phase: "spin",
     period,
     window: hitWindowMs(set.width, period),
     sweetAt: firstSweetAt(now, period),
     ballFrom: now,
     hit: null,
-    bases: [null, null, null],
-    prevBases: [null, null, null],
-    scored: [],
-    runs: 0,
+    roll: null,
+    resultAt: null,
     nextAt: null,
+    bases: [null, null, null],
+    outs: 0,
+    inning: 1,
+    half: 0,
+    teams,
+    batting: teams[0],
+    score: { red: 0, blue: 0 },
+    runs: 0,
+    last: null,
     atBats: {},
     log: [],
+    lastBatter: {},
+    winner: null,
   };
-  const first = activePlayers(s)[0];
+  const first = mode === "team" ? pickBatter(s, teams[0], null) : activePlayers(s)[0];
   setTurn(s, now, first?.id ?? null);
 }
 
 function newBall(bb, now) {
   bb.phase = "spin";
   bb.hit = null;
+  bb.roll = null;
+  bb.last = null;
   bb.sweetAt = firstSweetAt(now, bb.period);
   bb.ballFrom = now;
+  bb.resultAt = null;
   bb.nextAt = null;
+}
+
+function togetherDone(s) {
+  const bb = s.baseball;
+  const limit = Number(s.settings.baseball.atBats);
+  if (!Number.isFinite(limit) || limit <= 0) return false;
+  const active = activePlayers(s);
+  if (active.length === 0) return false;
+  return active.every((p) => (bb.atBats[p.id] || 0) >= limit);
+}
+
+function pressBaseball(s, action, now, rng) {
+  const bb = s.baseball;
+  const playerId = action.playerId;
+  if (bb.phase !== "spin" || action.t < (s.turn?.since ?? 0) + TURN_GUARD_MS || action.t < bb.ballFrom) {
+    pushEvent(s, now, { kind: "swing", playerId, contact: false, pid: action.pid });
+    return true;
+  }
+  const offset = offsetFromSweet(action.t, bb.sweetAt, bb.period);
+  const q = contactQuality(offset, bb.window);
+  if (q === null) {
+    pushEvent(s, now, { kind: "swing", playerId, contact: false, pid: action.pid, offset: Math.round(offset) });
+    return true;
+  }
+  const roll = simulateHit(offset, bb.window, rng);
+  bb.phase = "flight";
+  bb.hit = { t: action.t, playerId, offset: Math.round(offset), q: roll.q, team: bb.batting };
+  bb.roll = roll;
+  bb.resultAt = action.t + roll.durationMs;
+  bb.nextAt = bb.resultAt + RESULT_MS;
+  pushEvent(s, now, { kind: "swing", playerId, contact: true, q: roll.q, pid: action.pid, offset: Math.round(offset) });
+  return true;
+}
+
+/** ボールが止まった: 塁・点・アウトを反映する。 */
+function applyResult(s, now) {
+  const bb = s.baseball;
+  const playerId = bb.hit.playerId;
+  let n = bb.roll.n;
+  if (bb.mode === "together" && n === OUT) n = 1;
+  let scored = [];
+  if (n === OUT) {
+    bb.outs += 1;
+  } else {
+    const moved = advanceRunners(bb.bases, playerId, n);
+    bb.bases = moved.bases;
+    scored = moved.scored;
+    if (bb.mode === "team") bb.score[bb.batting] += scored.length;
+    else bb.runs += scored.length;
+  }
+  bb.atBats[playerId] = (bb.atBats[playerId] || 0) + 1;
+  bb.log.push({ playerId, n, team: bb.batting });
+  bb.lastBatter[bb.batting] = playerId;
+  bb.last = { n, scored: scored.length, outs: bb.outs };
+  bb.phase = "result";
+  pushEvent(s, now, { kind: "result", playerId, n, runs: scored.length, outs: bb.outs, team: bb.batting, mode: bb.mode });
+}
+
+function finishBaseball(s, now) {
+  const bb = s.baseball;
+  bb.phase = "done";
+  bb.hit = null;
+  bb.roll = null;
+  bb.resultAt = null;
+  bb.nextAt = null;
+  s.turn = null;
+  if (bb.mode === "team" && bb.teams.length > 1) {
+    const { red, blue } = bb.score;
+    bb.winner = red === blue ? null : red > blue ? "red" : "blue";
+  }
+  pushEvent(s, now, { kind: "done", game: "baseball", mode: bb.mode, runs: bb.runs, score: { ...bb.score }, winner: bb.winner });
+}
+
+/** 次のボールへ（チェンジ・おわりも、ここで決める）。 */
+function nextAtBat(s, now) {
+  const bb = s.baseball;
+  const set = s.settings.baseball;
+  if (bb.mode === "together") {
+    if (togetherDone(s)) return finishBaseball(s, now);
+    newBall(bb, now);
+    if (set.rotate === "auto") {
+      // 打ち終わった人（決まった数を打った人）はとばす。
+      const limit = Number(set.atBats);
+      const active = activePlayers(s);
+      let next = nextInOrder(active, s.turn?.playerId);
+      if (Number.isFinite(limit) && limit > 0) {
+        for (let i = 0; i < active.length && next && (bb.atBats[next.id] || 0) >= limit; i += 1) {
+          next = nextInOrder(active, next.id);
+        }
+      }
+      setTurn(s, now, next?.id ?? null);
+    } else {
+      setTurn(s, now, s.turn?.playerId ?? activePlayers(s)[0]?.id ?? null);
+    }
+    return;
+  }
+  // チームで: 3アウトでチェンジ。
+  if (bb.outs >= OUTS_PER_HALF) {
+    bb.outs = 0;
+    bb.bases = [null, null, null];
+    if (bb.teams.length > 1 && bb.half === 0) {
+      bb.half = 1;
+    } else {
+      bb.half = 0;
+      bb.inning += 1;
+    }
+    const innings = Math.max(1, Number(set.innings) || 2);
+    if (bb.inning > innings) return finishBaseball(s, now);
+    bb.batting = bb.teams[bb.half] || bb.teams[0];
+    newBall(bb, now);
+    pushEvent(s, now, { kind: "change", team: bb.batting, inning: bb.inning, half: bb.half });
+    const batter = pickBatter(s, bb.batting, null);
+    setTurn(s, now, batter?.id ?? null);
+    return;
+  }
+  newBall(bb, now);
+  const batter = set.rotate === "auto" ? pickBatter(s, bb.batting, s.turn?.playerId ?? null) : playerById(s, s.turn?.playerId);
+  setTurn(s, now, batter?.id ?? pickBatter(s, bb.batting, null)?.id ?? null);
+}
+
+function tickBaseball(s, now) {
+  const bb = s.baseball;
+  if (bb.phase === "flight" && bb.resultAt !== null && now >= bb.resultAt) {
+    applyResult(s, now);
+    return true;
+  }
+  if (bb.phase === "result" && bb.nextAt !== null && now >= bb.nextAt) {
+    nextAtBat(s, now);
+    return true;
+  }
+  return false;
 }
 
 function onSettingsChanged(s, now) {
@@ -398,73 +574,6 @@ function onSettingsChanged(s, now) {
       bc.angle = null;
     }
   }
-}
-
-function baseballDone(s) {
-  const bb = s.baseball;
-  const limit = Number(s.settings.baseball.atBats);
-  if (!Number.isFinite(limit) || limit <= 0) return false;
-  const active = activePlayers(s);
-  if (active.length === 0) return false;
-  return active.every((p) => (bb.atBats[p.id] || 0) >= limit);
-}
-
-function pressBaseball(s, action, now) {
-  const bb = s.baseball;
-  const playerId = action.playerId;
-  if (bb.phase !== "spin" || action.t < (s.turn?.since ?? 0) + TURN_GUARD_MS || action.t < bb.ballFrom) {
-    pushEvent(s, now, { kind: "swing", playerId, n: 0, pid: action.pid });
-    return true;
-  }
-  const offset = offsetFromSweet(action.t, bb.sweetAt, bb.period);
-  const n = judgeSwing(offset, bb.window);
-  if (n === 0) {
-    pushEvent(s, now, { kind: "swing", playerId, n: 0, pid: action.pid, offset: Math.round(offset) });
-    return true;
-  }
-  const { bases, scored } = advanceRunners(bb.bases, playerId, n);
-  bb.prevBases = bb.bases;
-  bb.bases = bases;
-  bb.scored = scored;
-  bb.runs += scored.length;
-  bb.phase = "flight";
-  bb.hit = { t: action.t, n, playerId, offset: Math.round(offset) };
-  bb.atBats[playerId] = (bb.atBats[playerId] || 0) + 1;
-  bb.log.push({ playerId, n });
-  bb.nextAt = action.t + FLIGHT_MS + RUN_MS;
-  pushEvent(s, now, { kind: "swing", playerId, n, pid: action.pid, offset: Math.round(offset), runs: scored.length });
-  return true;
-}
-
-function tickBaseball(s, now, rng) {
-  const bb = s.baseball;
-  if (bb.phase !== "flight" || bb.nextAt === null || now < bb.nextAt) return false;
-  bb.prevBases = bb.bases;
-  bb.scored = [];
-  if (baseballDone(s)) {
-    bb.phase = "done";
-    bb.hit = null;
-    bb.nextAt = null;
-    s.turn = null;
-    pushEvent(s, now, { kind: "done", game: "baseball", runs: bb.runs });
-    return true;
-  }
-  newBall(bb, now);
-  if (s.settings.baseball.rotate === "auto") {
-    // 打ち終わった人（決まった数を打った人）はとばす。
-    const limit = Number(s.settings.baseball.atBats);
-    const active = activePlayers(s);
-    let next = nextInOrder(active, s.turn?.playerId);
-    if (Number.isFinite(limit) && limit > 0) {
-      for (let i = 0; i < active.length && next && (bb.atBats[next.id] || 0) >= limit; i += 1) {
-        next = nextInOrder(active, next.id);
-      }
-    }
-    setTurn(s, now, next?.id ?? null);
-  } else {
-    setTurn(s, now, s.turn?.playerId ?? activePlayers(s)[0]?.id ?? null);
-  }
-  return true;
 }
 
 // ---------------------------------------------------------------------
@@ -635,7 +744,7 @@ function onPress(s, action, now, rng) {
   const a = { ...action, t };
   if (s.game === "baseball" && s.baseball) {
     if (s.baseball.phase === "done") return false;
-    return pressBaseball(s, a, now);
+    return pressBaseball(s, a, now, rng);
   }
   if (s.game === "boccia" && s.boccia) return pressBoccia(s, a, now);
   return false;
@@ -643,7 +752,7 @@ function onPress(s, action, now, rng) {
 
 function onTick(s, now, rng) {
   if (s.screen !== "game") return false;
-  if (s.game === "baseball" && s.baseball) return tickBaseball(s, now, rng);
+  if (s.game === "baseball" && s.baseball) return tickBaseball(s, now);
   if (s.game === "boccia" && s.boccia) return tickBoccia(s, now);
   return false;
 }
@@ -651,7 +760,12 @@ function onTick(s, now, rng) {
 /** 次に tick が要る時刻（無ければ null）。 */
 export function nextWake(state) {
   if (state.screen !== "game") return null;
-  if (state.game === "baseball") return state.baseball?.nextAt ?? null;
+  if (state.game === "baseball") {
+    const bb = state.baseball;
+    if (bb?.phase === "flight") return bb.resultAt;
+    if (bb?.phase === "result") return bb.nextAt;
+    return null;
+  }
   if (state.game === "boccia") return state.boccia?.nextAt ?? null;
   return null;
 }
