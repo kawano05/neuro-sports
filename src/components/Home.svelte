@@ -117,9 +117,8 @@
   .card {
     width: min(560px, 100%);
     background: var(--paper);
-    border: var(--border);
-    border-radius: 26px;
-    box-shadow: 0 8px 0 var(--line);
+    border: 2px solid var(--rule);
+    border-radius: 16px;
     padding: 22px;
     display: grid;
     gap: 18px;

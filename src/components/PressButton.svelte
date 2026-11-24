@@ -41,7 +41,7 @@
     min-height: 84px;
     border: 5px solid var(--line);
     border-radius: 28px;
-    background: var(--accent);
+    background: var(--paper);
     box-shadow: 0 7px 0 var(--line);
     cursor: pointer;
     touch-action: manipulation;
@@ -52,11 +52,10 @@
   .press.turn {
     background: var(--turn);
   }
-  .press.cheer {
-    background: #ffe7c2;
-  }
+  /* 番でないとき（おうえん・ためす）は白。黄色は「いま押せる」だけ。 */
+  .press.cheer,
   .press.test {
-    background: #d8f0ff;
+    background: var(--paper);
   }
   .press.flash,
   .press:active {

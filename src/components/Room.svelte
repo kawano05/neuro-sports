@@ -7,6 +7,7 @@
   import Players from "./Players.svelte";
   import PressButton from "./PressButton.svelte";
   import GameIcon from "./GameIcon.svelte";
+  import Icon from "./Icon.svelte";
 
   let { surface, onSettings } = $props();
 
@@ -56,7 +57,7 @@
       <div class="code solo">{@html rb("ひとりで あそぶ")}</div>
     {/if}
     {#if isHost}
-      <button class="btn small" type="button" onclick={onSettings} aria-label="せってい">⚙</button>
+      <button class="btn small icon" type="button" onclick={onSettings} aria-label="せってい"><Icon name="gear" /></button>
     {/if}
   </header>
 
@@ -134,8 +135,8 @@
     gap: 12px;
     padding: 6px 16px;
     background: var(--paper);
-    border: var(--border);
-    border-radius: 16px;
+    border: 2px solid var(--rule);
+    border-radius: var(--radius);
     margin-right: auto;
   }
   .code.solo {
@@ -159,9 +160,9 @@
     flex-wrap: wrap;
     margin: 0;
     padding: 10px 14px;
-    border: var(--border);
-    border-radius: 14px;
-    background: #ffd9d6;
+    border-left: 6px solid var(--danger);
+    border-radius: 10px;
+    background: #ffe6e2;
     font-weight: 800;
   }
   .body {
@@ -188,9 +189,8 @@
     gap: 8px;
     padding: 14px;
     background: var(--paper);
-    border: var(--border);
-    border-radius: 22px;
-    box-shadow: var(--shadow);
+    border: 2px solid var(--rule);
+    border-radius: 16px;
     cursor: pointer;
   }
   .game-card:disabled {
@@ -200,9 +200,12 @@
     width: min(120px, 22vw);
     height: min(120px, 22vw);
   }
+  .game-card:not(.chosen) {
+    opacity: 0.6;
+  }
   .game-card.chosen {
-    background: var(--turn);
-    box-shadow: 0 0 0 5px var(--line), var(--shadow);
+    border-color: var(--ink);
+    box-shadow: inset 0 0 0 2px var(--ink);
   }
   .game-name {
     font-size: 1.6rem;

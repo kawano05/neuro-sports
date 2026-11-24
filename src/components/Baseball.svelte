@@ -19,6 +19,7 @@
   import { playerById, TURN_GUARD_MS } from "../lib/engine.js";
   import { FLIGHT_MS, RUN_MS, ballAngle, judgeSwing, offsetFromSweet } from "../lib/games/baseball.js";
   import { rb, HIT_LABELS } from "../lib/text.js";
+  import PlayerMark from "./PlayerMark.svelte";
 
   let { onAgain, onBack } = $props();
 
@@ -408,7 +409,7 @@
   </div>
 
   {#if batter && bb?.phase !== "done"}
-    <div class="batter-tag" style="--pc: {batter.color}">{batter.name}</div>
+    <div class="batter-tag"><PlayerMark color={batter.color} size={30} />{batter.name}</div>
   {/if}
 
   {#if bb?.phase === "done"}
@@ -419,7 +420,7 @@
         <ul class="done-list">
           {#each state.players.filter((p) => (bb.atBats[p.id] || 0) > 0) as p (p.id)}
             <li style="--pc: {p.color}">
-              <span class="dot">{p.name.slice(0, 1)}</span>
+              <PlayerMark color={p.color} size={32} />
               <span class="pname">{p.name}</span>
               {#each hitsBy(p.id) as h}
                 <span class="hit n{h.n}">{HIT_LABELS[h.n]}</span>
@@ -469,10 +470,7 @@
     pointer-events: none;
   }
   .word.n4 {
-    color: #ffd400;
-  }
-  .word.n3 {
-    color: #ff9f1c;
+    color: var(--homerun);
   }
   @keyframes pop {
     0% {
@@ -495,8 +493,7 @@
     padding: 6px 14px 6px 8px;
     background: #1a1a1a;
     color: #fff;
-    border-radius: 16px;
-    border: 3px solid #fff;
+    border-radius: 12px;
   }
   .bases {
     width: clamp(64px, 11vmin, 92px);
@@ -514,13 +511,13 @@
     font-size: clamp(2rem, 6.5vmin, 3.4rem);
     font-weight: 900;
     line-height: 1;
-    color: #ffd400;
+    color: #fff;
     font-variant-numeric: tabular-nums;
   }
   .plus {
     font-size: clamp(1.4rem, 4.5vmin, 2.2rem);
     font-weight: 900;
-    color: #ffd400;
+    color: #fff;
     animation: pop-in 0.4s ease-out;
   }
   @keyframes pop-in {
@@ -537,10 +534,12 @@
     position: absolute;
     left: 10px;
     bottom: 10px;
-    padding: 4px 14px;
-    border: 3px solid var(--line);
-    border-radius: 999px;
-    background: var(--pc);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 14px 4px 8px;
+    border-radius: 10px;
+    background: var(--paper);
     font-weight: 900;
     font-size: clamp(1rem, 3vmin, 1.5rem);
     max-width: 60%;
@@ -561,9 +560,7 @@
     max-height: 100%;
     overflow: auto;
     background: var(--paper);
-    border: var(--border);
-    border-radius: 24px;
-    box-shadow: 0 8px 0 var(--line);
+    border-radius: 16px;
     padding: 18px 20px;
     display: grid;
     gap: 10px;
@@ -593,29 +590,20 @@
     flex-wrap: wrap;
     gap: 6px;
   }
-  .dot {
-    display: grid;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    border: 3px solid var(--line);
-    background: var(--pc);
-    font-weight: 900;
-  }
   .pname {
     font-weight: 900;
     margin-right: 6px;
   }
   .hit {
     padding: 2px 10px;
-    border-radius: 999px;
-    border: 2px solid var(--line);
+    border-radius: 8px;
+    border: 2px solid var(--rule-strong);
     font-weight: 800;
-    background: #fff3b0;
+    background: var(--paper);
   }
   .hit.n4 {
-    background: #ffd400;
+    background: var(--homerun);
+    border-color: var(--homerun);
   }
   .done-actions {
     display: flex;

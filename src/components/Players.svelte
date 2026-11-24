@@ -6,6 +6,7 @@
   import { session } from "../lib/app.js";
   import { MAX_PLAYING, playingCount } from "../lib/engine.js";
   import { rb, TEAM_LABELS } from "../lib/text.js";
+  import PlayerMark from "./PlayerMark.svelte";
 
   /** compact … 遊んでいるあいだの細い列。full … 待っている部屋の大きい列（ホストの操作つき）。 */
   let { compact = false, showTeams = false } = $props();
@@ -70,11 +71,8 @@
         onclick={() => makeTurn(player)}
         aria-label={`${player.name}${turn ? "（ばん）" : ""}`}
       >
-        <span class="dot" class:red={showTeams && player.team === "red"} class:blue={showTeams && player.team === "blue"}>
-          {player.name.slice(0, 1)}
-        </span>
+        <PlayerMark color={player.color} team={showTeams && player.role === "play" ? player.team : null} size={compact ? 32 : 40} />
         <span class="name">{player.name}{#if player.id === myId}<span class="you">{@html rb("（じぶん）")}</span>{/if}</span>
-        {#if pulse?.kind === "cheer"}<span class="flag" aria-hidden="true">📣</span>{/if}
       </button>
 
       {#if bb && player.role === "play"}
@@ -141,23 +139,20 @@
     gap: 10px;
     padding: 8px 10px;
     background: var(--paper);
-    border: 3px solid var(--line);
-    border-radius: 16px;
+    border: 2px solid var(--rule);
+    border-radius: var(--radius);
     transition: transform 0.12s ease;
   }
   .compact .player {
-    padding: 4px 8px 4px 4px;
-    border-radius: 999px;
+    padding: 4px 10px 4px 6px;
   }
+  /* 番の人の行は、黄色いふちと左の帯。中は白のまま（打席の丸が黄色に埋もれない）。 */
   .player.turn {
-    background: var(--turn);
-    box-shadow: 0 0 0 4px var(--line);
+    border-color: var(--turn);
+    box-shadow: inset 8px 0 0 var(--turn), 0 0 0 2px var(--turn);
   }
   .player.away {
     opacity: 0.4;
-  }
-  .player.watch .dot {
-    background: var(--muted);
   }
   .player.pulse {
     animation: bump 0.45s ease;
@@ -191,29 +186,6 @@
     cursor: default;
     opacity: 1;
   }
-  .dot {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    border: 3px solid var(--line);
-    background: var(--pc);
-    font-weight: 900;
-    font-size: 1.2rem;
-  }
-  .compact .dot {
-    width: 36px;
-    height: 36px;
-    font-size: 1rem;
-  }
-  .dot.red {
-    box-shadow: 0 0 0 4px var(--red);
-  }
-  .dot.blue {
-    box-shadow: 0 0 0 4px var(--blue);
-  }
   .name {
     font-size: 1.2rem;
     overflow: hidden;
@@ -228,9 +200,6 @@
     color: var(--ink-soft);
     margin-left: 4px;
   }
-  .flag {
-    font-size: 1.2rem;
-  }
   .controls {
     display: flex;
     gap: 8px;
@@ -239,15 +208,17 @@
   .role {
     font-weight: 800;
     padding: 6px 10px;
-    border-radius: 12px;
-    background: var(--muted);
+    border-radius: 8px;
+    color: var(--ink-soft);
   }
   .team.red {
     background: var(--red);
+    border-color: var(--red);
     color: #fff;
   }
   .team.blue {
     background: var(--blue);
+    border-color: var(--blue);
     color: #fff;
   }
   .slots {
@@ -267,6 +238,6 @@
     background: var(--line);
   }
   .slot.hr {
-    background: #ff9f1c;
+    background: var(--homerun);
   }
 </style>

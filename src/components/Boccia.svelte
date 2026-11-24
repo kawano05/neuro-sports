@@ -25,6 +25,7 @@
     restingPoint,
   } from "../lib/games/boccia.js";
   import { rb, TEAM_LABELS } from "../lib/text.js";
+  import PlayerMark from "./PlayerMark.svelte";
 
   let { onNextEnd, onBack } = $props();
 
@@ -317,8 +318,8 @@
   </div>
 
   {#if thrower && bc?.phase !== "end"}
-    <div class="thrower" style="--pc: {thrower.color}; --tc: {TEAM_COLOR[bc.current.team]}">
-      <span class="tdot"></span>{thrower.name}
+    <div class="thrower">
+      <PlayerMark color={thrower.color} team={bc.current.team} size={30} />{thrower.name}
     </div>
   {/if}
 
@@ -370,12 +371,11 @@
     align-items: center;
     gap: 10px;
     padding: 6px 12px;
-    border: 3px solid var(--line);
-    border-radius: 16px;
+    border-radius: var(--radius);
     background: var(--paper);
   }
   .team.now {
-    box-shadow: 0 0 0 4px var(--turn);
+    background: var(--turn);
   }
   .team-name {
     font-weight: 900;
@@ -404,7 +404,7 @@
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    border: 3px solid var(--line);
+    border: 2px solid var(--line);
   }
   .team.red .mini {
     background: var(--red);
@@ -423,19 +423,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 14px 4px 6px;
-    border: 3px solid var(--line);
-    border-radius: 999px;
-    background: var(--pc);
+    padding: 4px 14px 4px 8px;
+    border-radius: 10px;
+    background: var(--paper);
     font-weight: 900;
     font-size: clamp(1rem, 3vmin, 1.5rem);
-  }
-  .tdot {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    border: 3px solid var(--line);
-    background: var(--tc);
   }
   .end {
     position: absolute;
@@ -449,9 +441,7 @@
   .end-card {
     pointer-events: auto;
     background: var(--paper);
-    border: var(--border);
-    border-radius: 22px;
-    box-shadow: 0 6px 0 var(--line);
+    border-radius: 16px;
     padding: 12px 18px;
     display: grid;
     gap: 10px;

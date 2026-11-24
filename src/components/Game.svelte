@@ -8,6 +8,8 @@
   import PressButton from "./PressButton.svelte";
   import Baseball from "./Baseball.svelte";
   import Boccia from "./Boccia.svelte";
+  import PlayerMark from "./PlayerMark.svelte";
+  import Icon from "./Icon.svelte";
 
   let { surface, onSettings } = $props();
 
@@ -27,7 +29,7 @@
     <div class="turn" class:mine={myTurn} style="--pc: {turnPlayer?.color || 'transparent'}" aria-live="polite">
       {#if turnPlayer}
         {#if team}<span class="team-chip {team}">{TEAM_LABELS[team]}</span>{/if}
-        <span class="turn-dot">{turnPlayer.name.slice(0, 1)}</span>
+        <PlayerMark color={turnPlayer.color} size={38} />
         <span class="turn-text">{@html rb(`${turnPlayer.name}さんの ばん`)}</span>
       {:else}
         <span class="turn-text game-name">{@html rb(GAME_LABELS[state.game])}</span>
@@ -39,7 +41,7 @@
       {/if}
       {#if isHost}
         <button class="btn small" type="button" onclick={() => session.act({ type: "next" })}>{@html rb("つぎの 人[ひと]")}</button>
-        <button class="btn small" type="button" onclick={onSettings} aria-label="せってい">⚙</button>
+        <button class="btn small icon" type="button" onclick={onSettings} aria-label="せってい"><Icon name="gear" /></button>
         <button class="btn small" type="button" onclick={back}>{@html rb("おわる")}</button>
       {/if}
     </div>
@@ -104,9 +106,9 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 4px 16px 4px 6px;
-    border: var(--border);
-    border-radius: 999px;
+    padding: 4px 16px 4px 10px;
+    border: 2px solid var(--rule);
+    border-radius: var(--radius);
     background: var(--paper);
     margin-right: auto;
     min-height: 56px;
@@ -114,24 +116,13 @@
   }
   .turn.mine {
     background: var(--turn);
+    border-color: var(--turn);
     animation: glow 1.2s ease-in-out infinite;
   }
   @keyframes glow {
     50% {
       box-shadow: 0 0 0 6px rgba(255, 212, 0, 0.55);
     }
-  }
-  .turn-dot {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    border: 3px solid var(--line);
-    background: var(--pc);
-    font-weight: 900;
-    font-size: 1.2rem;
   }
   .turn-text {
     font-size: clamp(1.3rem, 4vmin, 2rem);
@@ -145,10 +136,9 @@
   }
   .team-chip {
     padding: 2px 10px;
-    border-radius: 999px;
+    border-radius: 8px;
     color: #fff;
     font-weight: 900;
-    border: 3px solid var(--line);
   }
   .team-chip.red {
     background: var(--red);
@@ -166,8 +156,8 @@
     font-size: 1.3rem;
     letter-spacing: 0.12em;
     padding: 4px 10px;
-    border: 3px solid var(--line);
-    border-radius: 12px;
+    border: 2px solid var(--rule);
+    border-radius: 10px;
     background: var(--paper);
   }
   .notice {
@@ -177,9 +167,9 @@
     flex-wrap: wrap;
     margin: 0;
     padding: 8px 12px;
-    border: var(--border);
-    border-radius: 14px;
-    background: #ffd9d6;
+    border-left: 6px solid var(--danger);
+    border-radius: 10px;
+    background: #ffe6e2;
     font-weight: 800;
   }
   .stage {

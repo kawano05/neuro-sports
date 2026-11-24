@@ -1,6 +1,10 @@
 /* =====================================================================
    ひとおし スポーツ — 全体の見た目
    neuro の「はっきり」の考え方: 太い黒のふち、平らではっきりした色、大きな形。
+   ただし太い黒のふちは、遊ぶ面の中（球・バット・円盤・球場・コート）と「おす」だけに使う。
+   まわりのボタンや札は、細い線と色だけにして、遊ぶ面より目立たせない。
+   色は1つに意味1つ: 黄色 = いま押せる（番の人・おす）、オレンジ = ホームラン、
+   赤・青 = ボッチャのチーム。ほかのボタンは白か黒。
    説明の札はなるべく置かず、並びと色で分かるようにする。
    ===================================================================== */
 
@@ -10,17 +14,18 @@
   --ink: #1a1a1a;
   --ink-soft: #4a4a4a;
   --line: #1a1a1a;
-  --accent: #ff7a00;
-  --accent-ink: #1a1a1a;
+  --rule: #ddd0b4;
+  --rule-strong: #bfae8a;
   --turn: #ffd400;
+  --homerun: #ff9f1c;
   --red: #e0302d;
   --blue: #1e6fd9;
   --green: #2e9e44;
   --muted: #e9e1cf;
   --danger: #b3261e;
-  --radius: 18px;
+  --radius: 12px;
+  /* 遊ぶ面の枠と「おす」だけが使う太い線。 */
   --border: 4px solid var(--line);
-  --shadow: 0 5px 0 var(--line);
   --font: "BIZ UDPGothic", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Meiryo", system-ui, sans-serif;
   color-scheme: light;
 }
@@ -73,21 +78,23 @@ button {
   gap: 0.4em;
   min-height: 56px;
   padding: 0.5em 1.1em;
-  border: var(--border);
+  border: 2px solid var(--rule-strong);
   border-radius: var(--radius);
   background: var(--paper);
-  box-shadow: var(--shadow);
   font-size: 1.15rem;
   font-weight: 800;
   cursor: pointer;
   touch-action: manipulation;
   user-select: none;
-  transition: transform 0.06s ease, box-shadow 0.06s ease;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+
+.btn:hover {
+  border-color: var(--ink);
 }
 
 .btn:active {
-  transform: translateY(4px);
-  box-shadow: 0 1px 0 var(--line);
+  background: #f3ead6;
 }
 
 .btn:focus-visible,
@@ -99,8 +106,13 @@ select:focus-visible {
 }
 
 .btn.primary {
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #ffffff;
+}
+
+.btn.primary:active {
+  background: #3a3a3a;
 }
 
 .btn.big {
@@ -113,7 +125,11 @@ select:focus-visible {
   min-height: 44px;
   font-size: 0.98rem;
   padding: 0.3em 0.8em;
-  box-shadow: 0 3px 0 var(--line);
+}
+
+.btn.icon {
+  padding: 0;
+  width: 44px;
 }
 
 .btn[disabled] {
@@ -128,8 +144,8 @@ input[type="tel"] {
   font-weight: 700;
   min-height: 56px;
   padding: 0.3em 0.6em;
-  border: var(--border);
-  border-radius: 14px;
+  border: 2px solid var(--rule-strong);
+  border-radius: var(--radius);
   background: var(--paper);
   color: var(--ink);
   width: 100%;

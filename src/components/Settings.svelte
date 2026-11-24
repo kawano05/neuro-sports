@@ -106,9 +106,7 @@
     max-height: calc(100dvh - 32px);
     overflow: auto;
     background: var(--paper);
-    border: var(--border);
-    border-radius: 24px;
-    box-shadow: 0 8px 0 var(--line);
+    border-radius: 16px;
     padding: 18px 20px 22px;
     display: grid;
     gap: 14px;
@@ -126,22 +124,22 @@
   h3 {
     margin-top: 6px;
     padding-top: 12px;
-    border-top: 3px dashed var(--muted);
+    border-top: 2px solid var(--rule);
   }
   .tabs {
     display: flex;
     gap: 8px;
   }
   .tab {
-    padding: 4px 14px;
-    border-radius: 999px;
-    border: 3px solid var(--line);
+    padding: 2px 2px 4px;
     font-weight: 800;
+    font-size: 1.1rem;
     opacity: 0.4;
+    border-bottom: 3px solid transparent;
   }
   .tab.on {
     opacity: 1;
-    background: var(--turn);
+    border-bottom-color: var(--ink);
   }
   fieldset {
     border: 0;
@@ -163,15 +161,16 @@
   .opt {
     min-height: 48px;
     padding: 6px 14px;
-    border: 3px solid var(--line);
-    border-radius: 14px;
+    border: 2px solid var(--rule-strong);
+    border-radius: 10px;
     background: var(--paper);
     font-weight: 800;
     font-size: 1rem;
     cursor: pointer;
   }
   .opt.on {
-    background: var(--accent);
-    box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.2);
+    background: var(--ink);
+    border-color: var(--ink);
+    color: #ffffff;
   }
 </style>
