@@ -61,13 +61,13 @@ const SPRAY_MAX = 40;
  * 真ん中ほど長打。区画の境目は独自。
  */
 export const WALL = [
-  { from: -45, to: -26, n: 1 },
-  { from: -26, to: -15, n: 2 },
-  { from: -15, to: -6, n: 3 },
-  { from: -6, to: 6, n: 4 },
-  { from: 6, to: 15, n: 3 },
-  { from: 15, to: 26, n: 2 },
-  { from: 26, to: 45, n: 1 },
+  { from: -45, to: -30, n: 1 },
+  { from: -30, to: -18, n: 2 },
+  { from: -18, to: -7, n: 3 },
+  { from: -7, to: 7, n: 4 },
+  { from: 7, to: 18, n: 3 },
+  { from: 18, to: 30, n: 2 },
+  { from: 30, to: 45, n: 1 },
 ];
 
 const polar = (r, spray) => {
@@ -83,7 +83,6 @@ export const POCKETS = [
   { id: "p4", ...polar(360, 33), r: 28, n: 1 },
   { id: "p5", ...polar(470, -18), r: 30, n: 2 },
   { id: "p6", ...polar(470, 18), r: 30, n: 2 },
-  { id: "p7", ...polar(530, 0), r: 30, n: 3 },
 ];
 
 /**

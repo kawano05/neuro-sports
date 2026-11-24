@@ -94,7 +94,7 @@
     </section>
 
     <section class="people" aria-label="いる人">
-      <Players showTeams={state.game === "boccia"} />
+      <Players showTeams={state.game === "boccia" || (state.game === "baseball" && state.settings.baseball.outs)} />
       {#if editing}
         <form class="rename" onsubmit={(e) => (e.preventDefault(), saveName())}>
           <input type="text" bind:value={newName} maxlength="12" aria-label="なまえ" />

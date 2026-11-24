@@ -15,7 +15,9 @@
     baseball: [
       { key: "speed", label: "円盤[えんばん]の はやさ", options: [["slow", "ゆっくり"], ["normal", "ふつう"], ["fast", "はやい"]] },
       { key: "width", label: "当[あ]たる 広[ひろ]さ", options: [["narrow", "せまい"], ["normal", "ふつう"], ["wide", "ひろい"], ["always", "いつでも"]] },
-      { key: "atBats", label: "ひとり 何回[なんかい] 打[う]つ", options: [[1, "1"], [3, "3"], [5, "5"], [0, "ずっと"]] },
+      { key: "outs", label: "アウト", options: [[true, "あり（チームで しあい）"], [false, "なし（みんなで 合計点[ごうけいてん]）"]] },
+      { key: "innings", label: "何回[なんかい]まで", options: [[1, "1回[かい]"], [2, "2回[かい]"], [3, "3回[かい]"]], when: (set) => set.outs },
+      { key: "atBats", label: "ひとり 何回[なんかい] 打[う]つ", options: [[1, "1"], [3, "3"], [5, "5"], [0, "ずっと"]], when: (set) => !set.outs },
       { key: "rotate", label: "交代[こうたい]", options: [["auto", "打[う]ったら つぎの人[ひと]"], ["manual", "支援者[しえんしゃ]が きめる"]] },
       { key: "cue", label: "合図[あいず]の 音[おと]", options: [[true, "あり"], [false, "なし"]] },
     ],
@@ -47,7 +49,7 @@
           <span class="tab" class:on={game === g}>{@html rb(g === "baseball" ? "野球[やきゅう]" : "ボッチャ")}</span>
         {/each}
       </div>
-      {#each GROUPS[game] as group}
+      {#each GROUPS[game].filter((g) => !g.when || g.when(state.settings[game])) as group}
         <fieldset>
           <legend>{@html rb(group.label)}</legend>
           <div class="seg">

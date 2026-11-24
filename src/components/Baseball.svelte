@@ -1,15 +1,17 @@
 <script>
   // =====================================================================
-  // 野球の画面（1つの球場）。
+  // 野球の画面（1つの盤）。
   //
-  // ふだんはバッターボックスに寄っている。バッターボックスの前で円盤が回り、ふちの
-  // ボールが黄色い帯（あたる ところ）に来たときに押すと打てる。帯の真ん中のオレンジに
-  // 近いほど遠くへ飛ぶ。帯の広さは、支援者の設定（当たる広さ）と円盤の速さで決まる。
+  // 本塁の上で円盤（回転台）が回り、ふちのボールが黄色い帯（あたる ところ）に来たときに
+  // 押すと、三塁側のバットが横に振れて打てる。帯の真ん中のオレンジに近いほど、
+  // まっすぐ強く転がる。
   //
-  // 打つと、カメラが球場全体へ引いて、球を追う。球の影と、通った線と、落ちたところの輪で、
-  // どこへ飛んだかが分かる。次のボールの前に、またバッターボックスへ寄る。
-  // （以前は、バッターボックスと小さな球場を2つ並べていて、球がどこへ飛んだか分かりにくかった。）
-  // 塁と得点は、右上の小さな札にまとめる。
+  // 打つと、カメラが盤全体へ引いて、ボールが転がるのを追う。フェンスの区画・穴・止まった場所で
+  // 結果が決まる（ヒット・ツーベース・スリーベース・ホームラン・アウト）。止まったら結果を出し、
+  // 少し見せてから、またバッターボックスへ寄る。塁・点・アウトは右上の札にまとめる。
+  //
+  // ※ 仕組みは、本塁の回転台とスイッチで打つ野球盤（ユニバーサル野球）を参考にした。
+  //   名前・ロゴ・盤の絵や色・穴の並びは使っていない（独自の盤）。
   //
   // 角度も判定も、ホストの時計（session.hostNow）で見る。どの画面でも同じ位置に見える。
   // =====================================================================
@@ -17,8 +19,19 @@
   import { get } from "svelte/store";
   import { session, audio, bus, predicted } from "../lib/app.js";
   import { playerById, TURN_GUARD_MS } from "../lib/engine.js";
-  import { FLIGHT_MS, RUN_MS, ballAngle, judgeSwing, offsetFromSweet } from "../lib/games/baseball.js";
-  import { rb, HIT_LABELS } from "../lib/text.js";
+  import {
+    FENCE_R,
+    HOME as H,
+    INFIELD_R,
+    LAUNCH,
+    OUT,
+    POCKETS,
+    WALL,
+    ballAngle,
+    contactQuality,
+    offsetFromSweet,
+  } from "../lib/games/baseball.js";
+  import { rb, HIT_LABELS, TEAM_LABELS } from "../lib/text.js";
   import PlayerMark from "./PlayerMark.svelte";
 
   let { onAgain, onBack } = $props();
@@ -27,6 +40,7 @@
   const bb = $derived(state.baseball);
   const isHost = $derived($session.mode === "host" || $session.mode === "solo");
   const batter = $derived(playerById(state, state.turn?.playerId ?? bb?.hit?.playerId));
+  const teamMode = $derived(bb?.mode === "team");
 
   // --- 時計 -------------------------------------------------------------
   let now = $state(session.hostNow());
@@ -51,17 +65,19 @@
   const easeIn = (k) => k * k;
   const easeInOut = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
   const polar = (cx, cy, r, deg) => ({ x: cx + r * Math.cos((deg * Math.PI) / 180), y: cy + r * Math.sin((deg * Math.PI) / 180) });
+  /** 本塁から見た角度（センターが 0、左が負）で、盤の上の点。 */
+  const spray = (r, s) => polar(H.x, H.y, r, -90 + s);
 
-  // --- バッターボックスの絵（この中の座標。本塁が 330,500） ----------------------
-  const C = { x: 330, y: 250 };
+  // --- 本塁まわりの絵（この中の座標。円盤の中心 = 本塁 = 330,470） ------------------
+  const C = { x: 330, y: 470 };
   const R = 160;
   const RB = 128;
   const BALL = 27;
-  const SWEET = { x: C.x, y: C.y + RB };
-  const PIVOT = { x: 150, y: SWEET.y };
-  const REST = 112;
+  const SWEET = { x: C.x, y: C.y - RB };
+  const PIVOT = { x: 130, y: SWEET.y };
+  const REST = 105;
   const CONTACT = 0;
-  const FOLLOW = -58;
+  const FOLLOW = -50;
 
   function arcPath(r, a0, a1) {
     const p0 = polar(C.x, C.y, r, a0);
@@ -70,30 +86,30 @@
     return `M ${p0.x.toFixed(1)} ${p0.y.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
   }
 
-  // --- 球場（本塁が 500,1000。上が外野） --------------------------------------
-  // バッターボックスの絵は、本塁に合わせて 1/4 にして置く。
+  // 本塁まわりの絵は、本塁に合わせて 1/4 にして盤に置く（打つ所が LAUNCH に重なる）。
   const S = 0.25;
-  const BOX_AT = { x: 500 - 330 * S, y: 1000 - 500 * S };
-  const toField = (p) => ({ x: BOX_AT.x + p.x * S, y: BOX_AT.y + p.y * S });
-  const H = { x: 500, y: 1000 };
-  const SWEET_F = toField(SWEET);
+  const BOX_AT = { x: H.x - C.x * S, y: H.y - C.y * S };
+
+  // --- 盤 ----------------------------------------------------------------
   const BASE_D = 160;
   const FIRST = polar(H.x, H.y, BASE_D, -45);
   const SECOND = { x: H.x, y: H.y - BASE_D * Math.SQRT2 };
   const THIRD = polar(H.x, H.y, BASE_D, -135);
-  const FENCE_R = 600;
   const STANDS_R = 780;
-  /** 落ちるところの、本塁からの距離（何塁打か）。ホームランはフェンスの向こう。 */
-  const LAND = { 1: 300, 2: 430, 3: 545, 4: 700 };
+
+  /** 結果ごとの色。オレンジはホームランだけ。 */
+  const RESULT_COLOR = { 0: "#8A8F99", 1: "#FFFFFF", 2: "#A5D86E", 3: "#C3A6F0", 4: "#FF9F1C" };
+  const resultName = (n) => (n === OUT ? (teamMode ? "アウト" : "ヒット") : HIT_LABELS[n]);
+  const resultColor = (n) => (n === OUT && !teamMode ? RESULT_COLOR[1] : RESULT_COLOR[n]);
 
   const fan = (r) => {
-    const a = polar(H.x, H.y, r, -135);
-    const b = polar(H.x, H.y, r, -45);
+    const a = spray(r, -45);
+    const b = spray(r, 45);
     return `M ${H.x} ${H.y} L ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${r} ${r} 0 0 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)} Z`;
   };
-  const arcOnly = (r) => {
-    const a = polar(H.x, H.y, r, -135);
-    const b = polar(H.x, H.y, r, -45);
+  const wallArc = (from, to, r) => {
+    const a = spray(r, from);
+    const b = spray(r, to);
     return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${r} ${r} 0 0 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
   };
   // スタンドの席（決まった並び）。
@@ -101,13 +117,13 @@
     const r = FENCE_R + 40 + row * 30;
     const count = 26 + row * 2;
     return Array.from({ length: count }, (_, i) => {
-      const a = -133 + (86 * i) / (count - 1);
-      return { ...polar(H.x, H.y, r, a), a };
+      const s = -43 + (86 * i) / (count - 1);
+      return { ...spray(r, s), a: s };
     });
   }).flat();
 
   // --- カメラ ------------------------------------------------------------
-  const BOX_VIEW = { x: 418, y: 878, w: 164, h: 168 };
+  const BOX_VIEW = { x: 410, y: 925, w: 180, h: 125 };
   const FIELD_VIEW = { x: 20, y: 170, w: 960, h: 880 };
 
   // --- あたる ところ・円盤 ----------------------------------------------------
@@ -124,7 +140,10 @@
   }
   const batDeg = $derived(batAngle(now - swingAt));
 
-  // --- 打った球（ホストの決定を待たずに、この端末で先に飛ばす） ---------------------
+  /** 当たりのよさから、打った音の強さ（1〜4）。 */
+  const soundLevel = (q) => (q >= 0.85 ? 4 : q >= 0.6 ? 3 : q >= 0.35 ? 2 : 1);
+
+  // --- 打った球（ホストの決定を待たずに、この端末で先に音を出し、円盤からボールを消す） ----
   let localHit = $state(null);
   const hit = $derived.by(() => {
     if (bb?.hit) return bb.hit;
@@ -132,7 +151,6 @@
     return null;
   });
   $effect(() => {
-    // 次のボールになったら、先取りは捨てる。
     if (bb?.ballFrom !== localHit?.ballFrom) localHit = null;
   });
 
@@ -146,10 +164,10 @@
       predicted.add(pid);
       if (b.phase === "spin" && t >= b.ballFrom && t >= (s.turn?.since ?? 0) + TURN_GUARD_MS) {
         const offset = offsetFromSweet(t, b.sweetAt, b.period);
-        const n = judgeSwing(offset, b.window);
-        if (n > 0) {
-          audio.batHit(n);
-          localHit = { t, n, offset, ballFrom: b.ballFrom, playerId: s.turn.playerId };
+        const q = contactQuality(offset, b.window);
+        if (q !== null) {
+          audio.batHit(soundLevel(q));
+          localHit = { t, offset, q, ballFrom: b.ballFrom, playerId: s.turn.playerId };
           return;
         }
       }
@@ -158,7 +176,7 @@
     const offEvents = session.onEvents((events, s) => {
       for (const e of events) {
         if (e.kind !== "swing" || e.playerId === get(session).myId) continue;
-        swingAt = e.n > 0 && s.baseball?.hit ? s.baseball.hit.t : session.hostNow();
+        swingAt = e.contact && s.baseball?.hit ? s.baseball.hit.t : session.hostNow();
       }
     });
     return () => {
@@ -171,11 +189,10 @@
   const burst = $derived(hit && now - hit.t >= 0 && now - hit.t < 320 ? clamp01((now - hit.t) / 320) : null);
 
   // カメラ: 打つと引いて、次のボールの前に戻る。
-  const TOTAL = FLIGHT_MS + RUN_MS;
   const camMix = $derived.by(() => {
     if (!hit) return 0;
     const out = easeInOut(clamp01((now - hit.t - 140) / 620));
-    const back = easeInOut(clamp01((now - hit.t - (TOTAL - 700)) / 700));
+    const back = bb?.nextAt ? easeInOut(clamp01((now - (bb.nextAt - 700)) / 700)) : 0;
     return out * (1 - back);
   });
   const view = $derived({
@@ -186,51 +203,40 @@
   });
   /** いまの画面で、1単位が何ピクセルか。 */
   const ppu = $derived(w && h ? Math.min(w / view.w, h / view.h) : 1);
+  const ballR = $derived(Math.max(BALL * S, 14 / ppu));
 
-  // 飛んでいく球。早く振ると左へ、遅いと右へ。地面の影と、通った線を残す。
-  const AIR_MS = FLIGHT_MS * 0.78;
-  const flight = $derived.by(() => {
-    if (!hit) return null;
-    const t = now - hit.t - 60;
-    if (t < 0) return null;
-    const side = Math.max(-1, Math.min(1, hit.offset / (bb?.window || 1)));
-    const a = -90 + side * 32;
-    const land = polar(H.x, H.y, LAND[hit.n], a);
-    const k = clamp01(t / AIR_MS);
-    let ground = { x: lerp(SWEET_F.x, land.x, k), y: lerp(SWEET_F.y, land.y, k) };
-    let height = Math.sin(Math.PI * k) * (0.35 + 0.22 * hit.n);
-    const landed = k >= 1;
-    let settle = 0;
-    if (landed && hit.n < 4) {
-      // 落ちたあと、少しはねて転がる。
-      settle = clamp01((t - AIR_MS) / 600);
-      ground = polar(H.x, H.y, LAND[hit.n] + 45 * easeOut(settle), a);
-      height = Math.abs(Math.sin(Math.PI * settle * 2)) * 0.12 * (1 - settle);
-    }
-    return { ground, height, land, landed, sinceLand: landed ? t - AIR_MS : 0, a };
+  // 転がる球（ホストが計算したコマを、時刻に合わせて見せる）。
+  const rolling = $derived.by(() => {
+    const roll = bb?.roll;
+    if (!roll || !bb.hit) return null;
+    const f = Math.max(0, ((now - bb.hit.t) / 1000) * roll.fps);
+    const i = Math.min(roll.frames.length - 1, Math.floor(f));
+    const j = Math.min(roll.frames.length - 1, i + 1);
+    const k = f - Math.floor(f);
+    const [x0, y0] = roll.frames[i];
+    const [x1, y1] = roll.frames[j];
+    const stopped = i >= roll.frames.length - 1;
+    // 打った直後だけ、少しはねる。
+    const hop = Math.max(0, Math.sin(Math.PI * Math.min(1, (now - bb.hit.t) / 420))) * (0.4 + roll.q * 0.5);
+    return { x: lerp(x0, x1, k), y: lerp(y0, y1, k), stopped, hop: stopped ? 0 : hop, inPocket: roll.where.kind === "pocket" };
   });
-  const ballR = $derived(Math.max(BALL * S, 15 / ppu));
 
-  // ホームランの はなび（スタンドの上）。
+  // ホームランの はなび（センターのスタンドの上）。
   const fireworks = $derived.by(() => {
-    if (!hit || hit.n !== 4 || !flight?.landed) return [];
-    const k = flight.sinceLand / 1300;
-    if (k > 1) return [];
-    const base = flight.land;
+    if (bb?.phase !== "result" || bb.last?.n !== 4 || !bb.resultAt) return [];
+    const k = (now - bb.resultAt) / 1300;
+    if (k < 0 || k > 1) return [];
+    const base = spray(FENCE_R + 90, 0);
     return [
-      { dx: -150, dy: -40, c: "#FFD400", d: 0 },
-      { dx: 140, dy: -60, c: "#FF5C8A", d: 0.15 },
-      { dx: 0, dy: -110, c: "#5BC8FF", d: 0.3 },
+      { dx: -150, dy: 10, c: "#FFD400", d: 0 },
+      { dx: 150, dy: -10, c: "#FF5C8A", d: 0.15 },
+      { dx: 0, dy: -60, c: "#5BC8FF", d: 0.3 },
     ].map((f) => ({ x: base.x + f.dx, y: base.y + f.dy, c: f.c, k: clamp01((k - f.d) / 0.6) }));
   });
 
-  // --- 右上の札（塁と得点） ---------------------------------------------------
-  // 球が落ちるまでは打つ前の塁、落ちたら打ったあとの塁。
-  const landedNow = $derived(!!(bb?.hit && now - bb.hit.t > 60 + AIR_MS));
-  const shownBases = $derived(bb ? (bb.phase === "flight" && bb.hit && !landedNow ? bb.prevBases : bb.bases) : [null, null, null]);
-  const shownRuns = $derived(bb ? (bb.phase === "flight" && bb.hit && !landedNow ? bb.runs - (bb.scored?.length || 0) : bb.runs) : 0);
-  const scoredFlash = $derived(bb?.phase === "flight" && landedNow && bb.scored?.length ? bb.scored.length : 0);
+  // --- 右上の札（塁・点・アウト・回） -------------------------------------------
   const baseColor = (id) => playerById(state, id)?.color || "#FFFFFF";
+  const scoredFlash = $derived(bb?.phase === "result" && bb.last?.scored ? bb.last.scored : 0);
 
   // --- 合図の音（ピッ・ピッ・ポーン） ------------------------------------
   // ボールが「あたる ところ」の真ん中に来る瞬間に「ポーン」（パキッとした高い音）。
@@ -259,7 +265,7 @@
     }
   }
 
-  const resultWord = $derived(hit && now - hit.t < TOTAL - 500 ? `${HIT_LABELS[hit.n]}！` : "");
+  const resultWord = $derived(bb?.phase === "result" && bb.last ? `${resultName(bb.last.n)}！` : "");
   const hitsBy = (id) => (bb?.log || []).filter((l) => l.playerId === id);
 </script>
 
@@ -272,44 +278,58 @@
       </pattern>
     </defs>
 
-    <!-- 球場 -->
+    <!-- 盤 -->
     <rect x="-600" y="-400" width="2200" height="2000" fill="#4FA656" />
     <path d={fan(STANDS_R)} fill="#8E9AAF" />
     {#each SEATS as seat}
-      <rect x={seat.x - 9} y={seat.y - 5} width="18" height="10" rx="3" fill="#B9C3D4" transform={`rotate(${seat.a + 90} ${seat.x} ${seat.y})`} />
+      <rect x={seat.x - 9} y={seat.y - 5} width="18" height="10" rx="3" fill="#B9C3D4" transform={`rotate(${seat.a} ${seat.x} ${seat.y})`} />
     {/each}
     <path d={fan(FENCE_R)} fill="url(#mow)" stroke="#1A1A1A" stroke-width="4" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
-    <path d={arcOnly(FENCE_R)} fill="none" stroke="#FFD400" stroke-width="8" vector-effect="non-scaling-stroke" />
-    <path d={fan(255)} fill="#E2B57E" />
+    <path d={fan(INFIELD_R)} fill="#E2B57E" />
     <path d={`M ${H.x} ${H.y} L ${FIRST.x} ${FIRST.y} L ${SECOND.x} ${SECOND.y} L ${THIRD.x} ${THIRD.y} Z`} fill="url(#mow)" />
-    <circle cx={H.x} cy={H.y - BASE_D * 0.75} r="24" fill="#E2B57E" />
-    {#each [-45, -135] as a}
-      {@const p0 = polar(H.x, H.y, 72, a)}
-      {@const p1 = polar(H.x, H.y, FENCE_R, a)}
+    {#each [-45, 45] as s}
+      {@const p0 = spray(72, s)}
+      {@const p1 = spray(FENCE_R, s)}
       <line x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke="#FFFFFF" stroke-width="4" vector-effect="non-scaling-stroke" />
     {/each}
     {#each [FIRST, SECOND, THIRD] as b}
       <rect x={b.x - 11} y={b.y - 11} width="22" height="22" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3" vector-effect="non-scaling-stroke" transform={`rotate(45 ${b.x} ${b.y})`} />
     {/each}
 
-    <!-- バッターボックス（円盤・バッター・バット） -->
+    <!-- フェンスの区画（内側に色の帯、名前はフェンスの外のスタンドに） -->
+    {#each WALL as wall}
+      {@const mid = spray(FENCE_R + 34, (wall.from + wall.to) / 2)}
+      <path d={wallArc(wall.from, wall.to, FENCE_R - 14)} fill="none" stroke={resultColor(wall.n)} stroke-width="26" />
+      <path d={wallArc(wall.to - 0.4, wall.to + 0.4, FENCE_R - 14)} fill="none" stroke="#1A1A1A" stroke-width="28" />
+      <text x={mid.x} y={mid.y} text-anchor="middle" dominant-baseline="middle" font-size="22" font-weight="900" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="6" paint-order="stroke">{resultName(wall.n)}</text>
+    {/each}
+
+    <!-- 穴（ゆっくり来たボールが落ちる） -->
+    {#each POCKETS as p}
+      <circle cx={p.x} cy={p.y} r={p.r + 7} fill={resultColor(p.n)} stroke="#1A1A1A" stroke-width="3" vector-effect="non-scaling-stroke" />
+      <circle cx={p.x} cy={p.y} r={p.r - 2} fill="#2B2B2B" />
+      <text x={p.x} y={p.y + p.r + 30} text-anchor="middle" font-size="22" font-weight="900" fill="#1A1A1A" stroke="#FFFFFF" stroke-width="6" paint-order="stroke">{resultName(p.n)}</text>
+    {/each}
+
+    <!-- 本塁まわり（円盤・バッター・バット） -->
     <g transform={`translate(${BOX_AT.x} ${BOX_AT.y}) scale(${S})`}>
-      <circle cx="330" cy="470" r="250" fill="#E2B57E" stroke="#C9965C" stroke-width="6" />
-      <rect x="56" y="350" width="170" height="210" rx="6" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.9" />
-      <rect x="434" y="350" width="170" height="210" rx="6" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.9" />
-      <path d="M295 470 L365 470 L365 500 L330 530 L295 500 Z" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="4" stroke-linejoin="round" />
+      <circle cx={C.x} cy={C.y + 10} r="250" fill="#E2B57E" stroke="#C9965C" stroke-width="6" />
+      <rect x="20" y="330" width="170" height="250" rx="6" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.9" />
+      <rect x="470" y="330" width="170" height="250" rx="6" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.9" />
+      <!-- 本塁（円盤はこの上で回る） -->
+      <path d="M140 380 L520 380 L520 540 L330 650 L140 540 Z" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="6" stroke-linejoin="round" />
 
       <circle cx={C.x} cy={C.y + 10} r={R + 6} fill="#1A1A1A" opacity="0.25" />
       <circle cx={C.x} cy={C.y} r={R} fill="#FFF3D6" stroke="#1A1A1A" stroke-width="7" />
 
-      <!-- あたる ところ -->
+      <!-- あたる ところ（バットの前） -->
       {#if bb && bb.phase !== "done"}
         {#if zoneHalf >= 180}
           <circle cx={C.x} cy={C.y} r={RB} fill="none" stroke="#FFD84D" stroke-width={BALL * 2 + 12} opacity="0.9" />
         {:else}
-          <path d={arcPath(RB, 90 - zoneHalf, 90 + zoneHalf)} fill="none" stroke="#FFD84D" stroke-width={BALL * 2 + 12} stroke-linecap="round" />
+          <path d={arcPath(RB, -90 - zoneHalf, -90 + zoneHalf)} fill="none" stroke="#FFD84D" stroke-width={BALL * 2 + 12} stroke-linecap="round" />
         {/if}
-        <path d={arcPath(RB, 90 - Math.min(179, zoneHalf / 4), 90 + Math.min(179, zoneHalf / 4))} fill="none" stroke="#FF9F1C" stroke-width={BALL * 2 + 12} stroke-linecap="round" />
+        <path d={arcPath(RB, -90 - Math.min(179, zoneHalf / 4), -90 + Math.min(179, zoneHalf / 4))} fill="none" stroke="#FF9F1C" stroke-width={BALL * 2 + 12} stroke-linecap="round" />
       {/if}
 
       <!-- 回る円盤（目盛りとボール） -->
@@ -330,8 +350,8 @@
         {/if}
       </g>
 
-      <!-- バッター（ヘルメットとユニフォームは、その人の色） -->
-      <g class="batter">
+      <!-- バッター（三塁側。ヘルメットとユニフォームは、その人の色） -->
+      <g transform="translate(-20 -56)">
         <ellipse cx="96" cy="452" rx="58" ry="40" fill={batter?.color || "#CCCCCC"} stroke="#1A1A1A" stroke-width="5" />
         <path d="M120 430 Q140 410 150 398" stroke="#1A1A1A" stroke-width="16" stroke-linecap="round" fill="none" />
         <path d="M120 430 Q140 410 150 398" stroke="#F5C9A5" stroke-width="9" stroke-linecap="round" fill="none" />
@@ -342,7 +362,7 @@
         <ellipse cx="112" cy="452" rx="16" ry="9" fill="#1A1A1A" opacity="0.85" transform="rotate(35 112 452)" />
       </g>
 
-      <!-- バット -->
+      <!-- バット（三塁側の軸から、本塁の前を横に振る） -->
       <g transform={`translate(${PIVOT.x} ${PIVOT.y}) rotate(${batDeg.toFixed(1)})`}>
         <path d="M-16 -8 L60 -10 Q170 -16 262 -22 Q284 -22 284 0 Q284 22 262 22 Q170 16 60 10 L-16 8 Z" fill="#C8873F" stroke="#1A1A1A" stroke-width="5" stroke-linejoin="round" />
         <rect x="-16" y="-9" width="62" height="18" rx="7" fill="#1A1A1A" />
@@ -356,16 +376,15 @@
       {/if}
     </g>
 
-    <!-- 飛んでいく球: 通った線・落ちたところの輪・影・球 -->
-    {#if flight}
-      <line x1={SWEET_F.x} y1={SWEET_F.y} x2={flight.ground.x} y2={flight.ground.y} stroke="#FFFFFF" stroke-width={5 / ppu} stroke-linecap="round" opacity="0.85" />
-      {#if flight.landed}
-        {@const k = clamp01(flight.sinceLand / 500)}
-        <circle cx={flight.land.x} cy={flight.land.y} r={(10 + 26 * easeOut(k)) / ppu} fill="none" stroke="#FFFFFF" stroke-width={5 / ppu} opacity={(1 - k * 0.6).toFixed(2)} />
-        <circle cx={flight.land.x} cy={flight.land.y} r={7 / ppu} fill="#1A1A1A" opacity="0.5" />
+    <!-- 転がる球: 通った線・止まったところの輪・影・球 -->
+    {#if rolling}
+      <line x1={LAUNCH.x} y1={LAUNCH.y} x2={rolling.x} y2={rolling.y} stroke="#FFFFFF" stroke-width={4 / ppu} stroke-linecap="round" opacity="0.8" />
+      {#if bb.phase === "result"}
+        {@const k = clamp01((now - bb.resultAt) / 500)}
+        <circle cx={rolling.x} cy={rolling.y} r={(14 + 30 * easeOut(k)) / ppu} fill="none" stroke="#FFFFFF" stroke-width={5 / ppu} opacity={(1 - k * 0.6).toFixed(2)} />
       {/if}
-      <ellipse cx={flight.ground.x} cy={flight.ground.y} rx={ballR * 0.95} ry={ballR * 0.5} fill="#1A1A1A" opacity="0.28" />
-      <g transform={`translate(${flight.ground.x.toFixed(1)} ${(flight.ground.y - flight.height * (60 / ppu) * 1.2).toFixed(1)}) scale(${(ballR / BALL) * (1 + flight.height * 0.5)})`}>
+      <ellipse cx={rolling.x} cy={rolling.y} rx={ballR * 0.95} ry={ballR * 0.5} fill="#1A1A1A" opacity="0.28" />
+      <g transform={`translate(${rolling.x.toFixed(1)} ${(rolling.y - rolling.hop * (40 / ppu)).toFixed(1)}) scale(${((ballR / BALL) * (rolling.stopped && rolling.inPocket ? 0.75 : 1 + rolling.hop * 0.3)).toFixed(3)})`}>
         <circle r={BALL} fill="#FFFFFF" stroke="#1A1A1A" stroke-width="5" />
         <path d="M-11 -18 Q 1 0 -11 18 M11 -18 Q -1 0 11 18" fill="none" stroke="#E0302D" stroke-width="3.6" />
       </g>
@@ -382,48 +401,69 @@
   </svg>
 
   {#if resultWord}
-    <div class="word n{hit.n}" aria-hidden="true">{resultWord}</div>
+    <div class="word" class:hr={bb.last.n === 4} class:out={bb.last.n === OUT && teamMode} aria-hidden="true">{resultWord}</div>
   {/if}
 
-  <!-- 塁と得点 -->
-  <div class="scorebox" aria-label={`とくてん ${shownRuns}`}>
-    <svg class="bases" viewBox="-44 -40 88 64" aria-hidden="true">
-      {#each [{ x: 0, y: -22, i: 1 }, { x: 24, y: 2, i: 0 }, { x: -24, y: 2, i: 2 }] as b}
-        <rect
-          x={b.x - 10}
-          y={b.y - 10}
-          width="20"
-          height="20"
-          transform={`rotate(45 ${b.x} ${b.y})`}
-          fill={shownBases[b.i] ? baseColor(shownBases[b.i]) : "transparent"}
-          stroke={shownBases[b.i] ? "#FFFFFF" : "#6B6B6B"}
-          stroke-width="3"
-        />
-      {/each}
-    </svg>
-    <span class="runs">
-      <span class="runs-label">{@html rb("得点[とくてん]")}</span>
-      <span class="runs-num">{shownRuns}</span>
-    </span>
-    {#if scoredFlash}<span class="plus">+{scoredFlash}</span>{/if}
-  </div>
+  <!-- 塁・点・アウト -->
+  {#if bb}
+    <div class="scorebox" aria-label={teamMode ? `あか ${bb.score.red} あお ${bb.score.blue} アウト ${bb.outs}` : `とくてん ${bb.runs}`}>
+      <svg class="bases" viewBox="-44 -40 88 64" aria-hidden="true">
+        {#each [{ x: 0, y: -22, i: 1 }, { x: 24, y: 2, i: 0 }, { x: -24, y: 2, i: 2 }] as b}
+          <rect
+            x={b.x - 10}
+            y={b.y - 10}
+            width="20"
+            height="20"
+            transform={`rotate(45 ${b.x} ${b.y})`}
+            fill={bb.bases[b.i] ? baseColor(bb.bases[b.i]) : "transparent"}
+            stroke={bb.bases[b.i] ? "#FFFFFF" : "#6B6B6B"}
+            stroke-width="3"
+          />
+        {/each}
+      </svg>
+      {#if teamMode}
+        <div class="team-board">
+          <span class="inning">{@html rb(`${bb.inning}回[かい] ${bb.half === 0 ? "表[おもて]" : "裏[うら]"}`)}</span>
+          <span class="teams">
+            {#each bb.teams as team}
+              <span class="team {team}" class:batting={bb.batting === team}>{TEAM_LABELS[team]} <b>{bb.score[team]}</b></span>
+            {/each}
+          </span>
+          <span class="outs" aria-hidden="true">
+            {#each [0, 1, 2] as i}<span class="out-dot" class:on={i < bb.outs}></span>{/each}
+          </span>
+        </div>
+      {:else}
+        <span class="runs">
+          <span class="runs-label">{@html rb("得点[とくてん]")}</span>
+          <span class="runs-num">{bb.runs}</span>
+        </span>
+      {/if}
+      {#if scoredFlash}<span class="plus">+{scoredFlash}</span>{/if}
+    </div>
+  {/if}
 
   {#if batter && bb?.phase !== "done"}
-    <div class="batter-tag"><PlayerMark color={batter.color} size={30} />{batter.name}</div>
+    <div class="batter-tag"><PlayerMark color={batter.color} team={teamMode && bb.teams.length > 1 ? bb.batting : null} size={30} />{batter.name}</div>
   {/if}
 
   {#if bb?.phase === "done"}
     <div class="done">
       <div class="done-card">
-        <p class="done-title">{@html rb("おわり！")}</p>
-        <p class="done-runs">{@html rb(`みんなで ${bb.runs}てん`)}</p>
+        {#if teamMode && bb.teams.length > 1}
+          <p class="done-title">{@html rb(bb.winner ? `${TEAM_LABELS[bb.winner]}の かち！` : "ひきわけ")}</p>
+          <p class="done-runs">{TEAM_LABELS.red} {bb.score.red} − {bb.score.blue} {TEAM_LABELS.blue}</p>
+        {:else}
+          <p class="done-title">{@html rb("おわり！")}</p>
+          <p class="done-runs">{@html rb(`みんなで ${teamMode ? bb.score[bb.teams[0]] : bb.runs}てん`)}</p>
+        {/if}
         <ul class="done-list">
           {#each state.players.filter((p) => (bb.atBats[p.id] || 0) > 0) as p (p.id)}
-            <li style="--pc: {p.color}">
-              <PlayerMark color={p.color} size={32} />
+            <li>
+              <PlayerMark color={p.color} team={teamMode && bb.teams.length > 1 ? p.team : null} size={32} />
               <span class="pname">{p.name}</span>
-              {#each hitsBy(p.id) as h}
-                <span class="hit n{h.n}">{HIT_LABELS[h.n]}</span>
+              {#each hitsBy(p.id) as l}
+                <span class="hit" class:n4={l.n === 4} class:out={l.n === OUT}>{resultName(l.n)}</span>
               {/each}
             </li>
           {/each}
@@ -469,8 +509,11 @@
     animation: pop 0.35s ease-out;
     pointer-events: none;
   }
-  .word.n4 {
+  .word.hr {
     color: var(--homerun);
+  }
+  .word.out {
+    color: #c9ccd2;
   }
   @keyframes pop {
     0% {
@@ -489,7 +532,7 @@
     right: 10px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     padding: 6px 14px 6px 8px;
     background: #1a1a1a;
     color: #fff;
@@ -513,6 +556,55 @@
     line-height: 1;
     color: #fff;
     font-variant-numeric: tabular-nums;
+  }
+  .team-board {
+    display: grid;
+    gap: 4px;
+    justify-items: start;
+  }
+  .inning {
+    font-weight: 800;
+    font-size: 0.95rem;
+  }
+  .teams {
+    display: flex;
+    gap: 6px;
+  }
+  .team {
+    padding: 0 8px;
+    border-radius: 6px;
+    font-weight: 800;
+    font-size: 1rem;
+    opacity: 0.75;
+  }
+  .team b {
+    font-size: 1.5rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .team.red {
+    background: var(--red);
+  }
+  .team.blue {
+    background: var(--blue);
+  }
+  .team.batting {
+    opacity: 1;
+    box-shadow: 0 0 0 3px var(--turn);
+  }
+  .outs {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+  }
+  .out-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #8a8f99;
+  }
+  .out-dot.on {
+    background: #e0302d;
+    border-color: #e0302d;
   }
   .plus {
     font-size: clamp(1.4rem, 4.5vmin, 2.2rem);
@@ -604,6 +696,11 @@
   .hit.n4 {
     background: var(--homerun);
     border-color: var(--homerun);
+  }
+  .hit.out {
+    color: var(--ink-soft);
+    background: #ecebe8;
+    border-color: #ecebe8;
   }
   .done-actions {
     display: flex;

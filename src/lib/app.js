@@ -55,14 +55,27 @@ session.onEvents((events, state) => {
         say(e.playerId === myId ? `${callName(player)}の ばん。おしてね` : `${callName(player)}の ばん`);
         break;
       case "swing":
+        // 打った音は当たりのよさで。結果（ヒット・アウトなど）は、ボールが止まったとき。
         if (!mine) {
-          if (e.n > 0) audio.batHit(e.n);
+          if (e.contact) audio.batHit(e.q >= 0.85 ? 4 : e.q >= 0.6 ? 3 : e.q >= 0.35 ? 2 : 1);
           else audio.swing();
         }
-        if (e.n > 0) {
+        break;
+      case "result": {
+        if (e.n === 0) {
+          audio.chime(330, 0, 0.8);
+          say(`アウト。${e.outs >= 3 ? "スリーアウト" : `${e.outs}アウト`}`);
+        } else {
+          if (e.n === 4) audio.cheer(1.6);
+          else audio.chime(523.25 + e.n * 110, 0, 0.8);
           const runs = e.runs > 0 ? `。${e.runs}てん はいった` : "";
           say(`${HIT_LABELS[e.n]}${runs}`);
         }
+        break;
+      }
+      case "change":
+        audio.turn();
+        say(`チェンジ。${TEAM_LABELS[e.team]}の こうげき`);
         break;
       case "cheer":
         if (!mine) audio.cheerPop();
@@ -88,7 +101,9 @@ session.onEvents((events, state) => {
       }
       case "done":
         audio.fanfare();
-        say(`おわり。みんなで ${e.runs}てん`);
+        if (e.mode === "team" && e.score) {
+          say(e.winner ? `しあい しゅうりょう。${TEAM_LABELS[e.winner]}の かち` : "しあい しゅうりょう。ひきわけ");
+        } else say(`おわり。みんなで ${e.runs}てん`);
         break;
       case "start":
         say(e.game === "baseball" ? "やきゅう、はじめ" : "ボッチャ、はじめ", { speak: false });

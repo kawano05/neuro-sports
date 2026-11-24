@@ -18,7 +18,12 @@
   const isHost = $derived($session.mode === "host" || $session.mode === "solo");
   const turnPlayer = $derived(playerById(state, state.turn?.playerId));
   const myTurn = $derived(state.turn?.playerId === myId);
-  const team = $derived(state.game === "boccia" && state.boccia?.teams?.length > 1 ? state.boccia.current?.team : null);
+  const team = $derived(
+    state.game === "boccia"
+      ? state.boccia?.teams?.length > 1 ? state.boccia.current?.team : null
+      : state.baseball?.mode === "team" && state.baseball.teams.length > 1 ? state.baseball.batting : null
+  );
+  const showTeams = $derived(state.game === "boccia" || state.baseball?.mode === "team");
 
   const again = () => session.act({ type: "start", game: state.game });
   const back = () => session.act({ type: "stop" });
@@ -63,7 +68,7 @@
   </section>
 
   <aside class="people">
-    <Players compact showTeams={state.game === "boccia"} />
+    <Players compact {showTeams} />
   </aside>
 
   <footer class="press-area">

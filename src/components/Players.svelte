@@ -18,7 +18,8 @@
   const playFull = $derived(playingCount(state) >= MAX_PLAYING);
 
   // 野球の打席の丸。
-  const bb = $derived(state.game === "baseball" && state.screen === "game" ? state.baseball : null);
+  // 打席の丸は「アウトなし（みんなで）」のときだけ（チームのときは回とアウトで進む）。
+  const bb = $derived(state.game === "baseball" && state.screen === "game" && state.baseball?.mode === "together" ? state.baseball : null);
   const atBatLimit = $derived(Number(state.settings.baseball.atBats) || 0);
   function slots(id) {
     const hits = (bb?.log || []).filter((l) => l.playerId === id).map((l) => l.n);
