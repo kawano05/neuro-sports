@@ -108,6 +108,10 @@ export function createSession() {
         },
         onData(conn, msg) {
           lastSeen.set(conn, performance.now());
+          // タブが裏に回ると、ホストのタイマーは遅れる（1秒ごと など）。ゲストからの便りは
+          // 遅れずに届くので、そのたびに「時間が来たか」も確かめる。
+          const due = nextWake(state);
+          if (due !== null && performance.now() >= due) dispatch({ type: "tick" });
           onGuestMessage(conn, msg);
         },
         onClose(conn) {
@@ -195,8 +199,11 @@ export function createSession() {
 
   // --- ゲスト ---------------------------------------------------------
 
+  let lastJoin = null;
+
   async function join(code, me) {
     leave();
+    lastJoin = { code, me };
     offset = 0;
     clock.length = 0;
     lastEventId = 0;
@@ -217,6 +224,12 @@ export function createSession() {
     net.send({ type: "hello", id: current.myId, name: me.name, role: me.role });
     ping();
     return true;
+  }
+
+  /** 切れたあと、同じ部屋に同じ人として入り直す。 */
+  function rejoin() {
+    if (!lastJoin) return Promise.resolve(false);
+    return join(lastJoin.code, lastJoin.me);
   }
 
   function ping() {
@@ -331,6 +344,7 @@ export function createSession() {
     host,
     solo,
     join,
+    rejoin,
     leave,
     press,
     act,

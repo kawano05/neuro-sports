@@ -61,7 +61,10 @@
   </header>
 
   {#if $session.status === "closed"}
-    <p class="notice" role="alert">{@html rb("ホストとの つながりが きれました")}</p>
+    <div class="notice" role="alert">
+      {@html rb("ホストとの つながりが きれました")}
+      <button class="btn small" type="button" onclick={() => session.rejoin()}>{@html rb("もういちど はいる")}</button>
+    </div>
   {/if}
 
   <div class="body">
@@ -147,6 +150,10 @@
     font-variant-numeric: tabular-nums;
   }
   .notice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
     margin: 0;
     padding: 10px 14px;
     border: var(--border);

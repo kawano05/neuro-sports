@@ -238,7 +238,7 @@
 <div class="baseball">
   <!-- バッターボックス -->
   <div class="box-view">
-    <svg viewBox="0 0 600 660" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <svg viewBox="24 40 520 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <defs>
         <pattern id="mow" width="60" height="60" patternUnits="userSpaceOnUse">
           <rect width="60" height="60" fill="#5DBB63" />

@@ -18,6 +18,8 @@ import {
   simulateThrow,
   triangle,
   AIM_MAX_DEG,
+  TURNTABLE,
+  placeJack,
 } from "../src/lib/games/boccia.js";
 import { createState, reduce, activePlayers, TURN_GUARD_MS } from "../src/lib/engine.js";
 
@@ -259,6 +261,32 @@ test("待っている部屋で押すと「スイッチの ためし」が全員�
   s = reduce(s, { type: "press", playerId: "b", t: 5 }, 5);
   assert.equal(s.events.at(-1).kind, "test");
   assert.equal(s.events.at(-1).playerId, "b");
+});
+
+test("見るだけの人には、番が来ない", () => {
+  let s = createState({ roomCode: "1234" });
+  s = reduce(s, { type: "join", player: { id: "a", name: "a" } }, 0);
+  s = reduce(s, { type: "join", player: { id: "w", name: "w", role: "watch" } }, 0);
+  s = reduce(s, { type: "join", player: { id: "b", name: "b" } }, 0);
+  s = reduce(s, { type: "start", game: "baseball" }, 0);
+  const seen = new Set();
+  for (let i = 0; i < 4; i += 1) {
+    seen.add(s.turn.playerId);
+    const t = s.baseball.sweetAt;
+    s = reduce(s, { type: "press", playerId: s.turn.playerId, t }, t);
+    s = reduce(s, { type: "tick" }, s.baseball.nextAt);
+  }
+  assert.ok(!seen.has("w"));
+  assert.deepEqual([...seen].sort(), ["a", "b"]);
+});
+
+test("ジャックは、どこに置かれても首振りの幅で狙える", () => {
+  for (const [rx, ry] of [[0, 0], [1, 0], [0, 1], [1, 1], [0.5, 0.5]]) {
+    const values = [rx, ry];
+    const jack = placeJack(() => values.shift());
+    const deg = (Math.atan2(jack.x - TURNTABLE.x, TURNTABLE.y - jack.y) * 180) / Math.PI;
+    assert.ok(Math.abs(deg) <= AIM_MAX_DEG, `${deg.toFixed(1)}°`);
+  }
 });
 
 for (const { name, error } of failures) {

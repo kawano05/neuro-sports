@@ -18,15 +18,18 @@
 /** コート（センチではなく、画面の単位）。y が小さいほど奥。 */
 export const COURT = { w: 600, h: 900 };
 /** 玉の半径（見やすさを優先して、本物より大きい）。 */
-export const BALL_R = 24;
-export const JACK_R = 18;
+export const BALL_R = 28;
+export const JACK_R = 21;
 /** 回転台の中心と、ランプの出口までの長さ。 */
 export const TURNTABLE = { x: 300, y: 1035 };
 export const RAMP_EXIT = 150;
 /** ランプの上で、ボールが動ける長さ（出口から奥へ）。 */
 export const RAMP_TRAVEL = { from: 40, to: 250 };
-/** 首振りの片側の角度（度）。 */
-export const AIM_MAX_DEG = 28;
+/**
+ * 首振りの片側の角度（度）。ジャックはどこに置かれても、この幅で狙える。
+ * 広くしすぎると、「むきだけ（1回押し）」で玉が横から出てばかりになる（±28° で試すと6球中4球）。
+ */
+export const AIM_MAX_DEG = 20;
 /** 転がる距離の範囲（つよさ 0 → 1）。 */
 export const ROLL_DISTANCE = { min: 200, max: 960 };
 /** 転がりのブレーキ（単位/秒²）。 */

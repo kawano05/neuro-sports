@@ -46,7 +46,10 @@
   </header>
 
   {#if $session.status === "closed"}
-    <p class="notice" role="alert">{@html rb("ホストとの つながりが きれました")}</p>
+    <div class="notice" role="alert">
+      {@html rb("ホストとの つながりが きれました")}
+      <button class="btn small" type="button" onclick={() => session.rejoin()}>{@html rb("もういちど はいる")}</button>
+    </div>
   {/if}
 
   <section class="stage" use:surface>
@@ -72,8 +75,24 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "top" "notice" "stage" "people" "press";
     gap: 10px;
     padding: 10px 12px 14px;
+  }
+  .top {
+    grid-area: top;
+  }
+  .notice {
+    grid-area: notice;
+  }
+  .stage {
+    grid-area: stage;
+  }
+  .people {
+    grid-area: people;
+  }
+  .press-area {
+    grid-area: press;
   }
   .top {
     display: flex;
@@ -152,6 +171,10 @@
     background: var(--paper);
   }
   .notice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
     margin: 0;
     padding: 8px 12px;
     border: var(--border);
@@ -173,26 +196,15 @@
     .game {
       grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
       grid-template-rows: auto auto minmax(0, 1fr) auto;
-    }
-    .top,
-    .notice {
-      grid-column: 1 / -1;
-    }
-    .stage {
-      grid-column: 1;
-      grid-row: 3 / 5;
+      grid-template-areas: "top top" "notice notice" "stage people" "stage press";
     }
     .people {
-      grid-column: 2;
-      grid-row: 3;
       overflow: auto;
     }
     .people :global(.players.compact) {
       display: grid;
     }
     .press-area {
-      grid-column: 2;
-      grid-row: 4;
       height: clamp(150px, 30vh, 260px);
     }
   }
