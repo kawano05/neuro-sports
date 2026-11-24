@@ -1,0 +1,152 @@
+<script>
+  import { untrack } from "svelte";
+  import { session, prefs, updatePrefs, audio } from "../lib/app.js";
+  import { normalizeCode } from "../lib/net.js";
+  import { rb } from "../lib/text.js";
+  import GameIcon from "./GameIcon.svelte";
+
+  let { initialCode = null } = $props();
+
+  let name = $state($prefs.name || "");
+  let joining = $state(untrack(() => !!initialCode));
+  let code = $state(untrack(() => initialCode || ""));
+  const validCode = $derived(normalizeCode(code));
+  const busy = $derived($session.status === "connecting");
+
+  function me(role = "play") {
+    const trimmed = name.trim().slice(0, 12);
+    updatePrefs({ name: trimmed, role });
+    return { name: trimmed, role };
+  }
+
+  function create() {
+    audio.unlock();
+    session.host(me());
+  }
+
+  function solo() {
+    audio.unlock();
+    session.solo(me());
+  }
+
+  function join(role) {
+    audio.unlock();
+    if (!validCode) return;
+    history.replaceState(null, "", `#room=${validCode}`);
+    session.join(validCode, me(role));
+  }
+</script>
+
+<main class="home">
+  <header class="title">
+    <div class="icons" aria-hidden="true">
+      <GameIcon game="baseball" />
+      <GameIcon game="boccia" />
+    </div>
+    <h1>{@html rb("ひとおし スポーツ")}</h1>
+  </header>
+
+  <section class="card">
+    <label class="field">
+      <span class="label">{@html rb("名前[なまえ]")}</span>
+      <input type="text" bind:value={name} maxlength="12" autocomplete="nickname" placeholder="なまえ" />
+    </label>
+
+    {#if !joining}
+      <div class="actions">
+        <button class="btn primary big" onclick={create} disabled={busy}>{@html rb("部屋[へや]を つくる")}</button>
+        <button class="btn big" onclick={() => (joining = true)} disabled={busy}>{@html rb("部屋[へや]に はいる")}</button>
+        <button class="btn" onclick={solo} disabled={busy}>{@html rb("ひとりで あそぶ")}</button>
+      </div>
+    {:else}
+      <label class="field">
+        <span class="label">{@html rb("部屋[へや]の 番号[ばんごう]")}</span>
+        <input
+          class="code"
+          type="tel"
+          inputmode="numeric"
+          maxlength="4"
+          bind:value={code}
+          placeholder="1234"
+          autocomplete="off"
+          onkeydown={(e) => e.key === "Enter" && join("play")}
+        />
+      </label>
+      <div class="actions">
+        <button class="btn primary big" onclick={() => join("play")} disabled={!validCode || busy}>{@html rb("あそぶ")}</button>
+        <button class="btn big" onclick={() => join("watch")} disabled={!validCode || busy}>{@html rb("見[み]るだけ")}</button>
+        <button class="btn small" onclick={() => (joining = false)} disabled={busy}>{@html rb("もどる")}</button>
+      </div>
+    {/if}
+
+    {#if busy}
+      <p class="status" role="status">{@html rb("つないでいます…")}</p>
+    {:else if $session.error}
+      <p class="status error" role="alert">{$session.error}</p>
+    {/if}
+  </section>
+</main>
+
+<style>
+  .home {
+    min-height: 100dvh;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 20px;
+    padding: 24px 16px 40px;
+  }
+  .title {
+    text-align: center;
+  }
+  .icons {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+  }
+  .icons :global(svg) {
+    width: 96px;
+    height: 96px;
+  }
+  h1 {
+    margin: 8px 0 0;
+    font-size: clamp(2rem, 6vw, 3.2rem);
+    font-weight: 900;
+    letter-spacing: 0.04em;
+  }
+  .card {
+    width: min(560px, 100%);
+    background: var(--paper);
+    border: var(--border);
+    border-radius: 26px;
+    box-shadow: 0 8px 0 var(--line);
+    padding: 22px;
+    display: grid;
+    gap: 18px;
+  }
+  .field {
+    display: grid;
+    gap: 6px;
+  }
+  .label {
+    font-weight: 800;
+    font-size: 1.05rem;
+  }
+  .code {
+    font-size: 2.4rem !important;
+    letter-spacing: 0.3em;
+    text-align: center;
+  }
+  .actions {
+    display: grid;
+    gap: 14px;
+  }
+  .status {
+    margin: 0;
+    font-weight: 800;
+    text-align: center;
+  }
+  .error {
+    color: var(--danger);
+  }
+</style>

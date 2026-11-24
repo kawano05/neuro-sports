@@ -1,0 +1,148 @@
+/* =====================================================================
+   ひとおし スポーツ — 全体の見た目
+   neuro の「はっきり」の考え方: 太い黒のふち、平らではっきりした色、大きな形。
+   説明の札はなるべく置かず、並びと色で分かるようにする。
+   ===================================================================== */
+
+:root {
+  --bg: #fff4de;
+  --paper: #ffffff;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --line: #1a1a1a;
+  --accent: #ff7a00;
+  --accent-ink: #1a1a1a;
+  --turn: #ffd400;
+  --red: #e0302d;
+  --blue: #1e6fd9;
+  --green: #2e9e44;
+  --muted: #e9e1cf;
+  --danger: #b3261e;
+  --radius: 18px;
+  --border: 4px solid var(--line);
+  --shadow: 0 5px 0 var(--line);
+  --font: "BIZ UDPGothic", "Hiragino Maru Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Meiryo", system-ui, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  overscroll-behavior: none;
+}
+
+#app {
+  min-height: 100%;
+}
+
+ruby rt {
+  font-size: 0.5em;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  min-height: 56px;
+  padding: 0.5em 1.1em;
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  font-size: 1.15rem;
+  font-weight: 800;
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+}
+
+.btn:active {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.btn:focus-visible,
+.chip:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 4px solid var(--blue);
+  outline-offset: 3px;
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.btn.big {
+  min-height: 76px;
+  font-size: 1.45rem;
+  padding: 0.6em 1.4em;
+}
+
+.btn.small {
+  min-height: 44px;
+  font-size: 0.98rem;
+  padding: 0.3em 0.8em;
+  box-shadow: 0 3px 0 var(--line);
+}
+
+.btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+input[type="text"],
+input[type="tel"] {
+  font: inherit;
+  font-size: 1.3rem;
+  font-weight: 700;
+  min-height: 56px;
+  padding: 0.3em 0.6em;
+  border: var(--border);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  width: 100%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

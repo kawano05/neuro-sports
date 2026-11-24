@@ -16,19 +16,19 @@
 // =====================================================================
 
 /** コート（センチではなく、画面の単位）。y が小さいほど奥。 */
-export const COURT = { w: 600, h: 1000 };
+export const COURT = { w: 600, h: 900 };
 /** 玉の半径（見やすさを優先して、本物より大きい）。 */
-export const BALL_R = 20;
-export const JACK_R = 15;
+export const BALL_R = 24;
+export const JACK_R = 18;
 /** 回転台の中心と、ランプの出口までの長さ。 */
-export const TURNTABLE = { x: 300, y: 1135 };
+export const TURNTABLE = { x: 300, y: 1035 };
 export const RAMP_EXIT = 150;
 /** ランプの上で、ボールが動ける長さ（出口から奥へ）。 */
 export const RAMP_TRAVEL = { from: 40, to: 250 };
 /** 首振りの片側の角度（度）。 */
 export const AIM_MAX_DEG = 28;
 /** 転がる距離の範囲（つよさ 0 → 1）。 */
-export const ROLL_DISTANCE = { min: 230, max: 1060 };
+export const ROLL_DISTANCE = { min: 200, max: 960 };
 /** 転がりのブレーキ（単位/秒²）。 */
 export const ROLL_DECEL = 320;
 
@@ -273,8 +273,8 @@ export function nextTeam(balls, jack, left, teams = TEAMS) {
  */
 export function placeJack(rng = Math.random) {
   return {
-    x: round1(170 + rng() * 260),
-    y: round1(300 + rng() * 380),
+    x: round1(160 + rng() * 280),
+    y: round1(240 + rng() * 340),
     out: false,
   };
 }
