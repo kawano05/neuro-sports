@@ -2,7 +2,7 @@
   // 待っている部屋。番号と入り方・いる人・遊び（ホストが選ぶ）。
   // ここでスイッチを押すと、自分の名前が全員の画面で弾む（スイッチの ためし）。
   import { session, prefs, updatePrefs } from "../lib/app.js";
-  import { activePlayers } from "../lib/engine.js";
+  import { activePlayers, playingCount, MAX_PLAYING, MAX_IN_ROOM } from "../lib/engine.js";
   import { rb, GAME_LABELS } from "../lib/text.js";
   import Players from "./Players.svelte";
   import PressButton from "./PressButton.svelte";
@@ -18,6 +18,9 @@
   // ホストが配るリンクには合言葉が付く（リンクから来た人は、許可を待たずに入れる）。
   const link = $derived(code && $session.roomKey ? `${location.origin}${location.pathname}#room=${code}&key=${$session.roomKey}` : "");
   const canStart = $derived(activePlayers(state).length > 0);
+  // 人数と上限（あそぶ 8人まで・部屋 20人まで）。
+  const playing = $derived(playingCount(state));
+  const inRoom = $derived(state.players.filter((p) => p.connected).length);
 
   let copied = $state(false);
   async function copyLink() {
@@ -102,6 +105,10 @@
     </section>
 
     <section class="people" aria-label="いる人">
+      <p class="counts" aria-label={`あそぶ ${playing}人、${MAX_PLAYING}人まで。へや ${inRoom}人、${MAX_IN_ROOM}人まで`}>
+        <span class:full={playing >= MAX_PLAYING}>{@html rb("あそぶ")} <b>{playing}</b> / {MAX_PLAYING}{@html rb("人[にん]")}</span>
+        <span class:full={inRoom >= MAX_IN_ROOM}>{@html rb("部屋[へや]")} <b>{inRoom}</b> / {MAX_IN_ROOM}{@html rb("人[にん]")}</span>
+      </p>
       <Players showTeams={state.game === "boccia" || (state.game === "baseball" && state.settings.baseball.outs)} />
       {#if editing}
         <form class="rename" onsubmit={(e) => (e.preventDefault(), saveName())}>
@@ -232,6 +239,21 @@
   .people {
     display: grid;
     gap: 12px;
+  }
+  .counts {
+    margin: 0;
+    display: flex;
+    gap: 16px;
+    font-weight: 800;
+    color: var(--ink-soft);
+  }
+  .counts b {
+    font-size: 1.25em;
+    color: var(--ink);
+  }
+  .counts .full,
+  .counts .full b {
+    color: var(--danger);
   }
   .rename {
     display: flex;

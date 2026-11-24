@@ -272,6 +272,12 @@ export function createSession() {
   function removePlayer(id) {
     if (!isHostLike() || id === current.myId) return;
     removed.add(id);
+    // 外した人は、リンクの合言葉を知っている。合言葉を作りなおして、前のリンクでは
+    // 許可なしに入れないようにする（入っている人は札で入り直せるので困らない）。
+    if (net) {
+      roomKey = randomToken(12);
+      store.update((v) => ({ ...v, roomKey }));
+    }
     for (const [tok, owner] of tokens) if (owner === id) tokens.delete(tok);
     for (const [conn, owner] of [...connPlayer]) {
       if (owner !== id) continue;
