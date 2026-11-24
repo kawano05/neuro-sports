@@ -109,7 +109,7 @@
         <span class:full={playing >= MAX_PLAYING}>{@html rb("あそぶ")} <b>{playing}</b> / {MAX_PLAYING}{@html rb("人[にん]")}</span>
         <span class:full={inRoom >= MAX_IN_ROOM}>{@html rb("部屋[へや]")} <b>{inRoom}</b> / {MAX_IN_ROOM}{@html rb("人[にん]")}</span>
       </p>
-      <Players showTeams={state.game === "boccia" || (state.game === "baseball" && state.settings.baseball.outs)} />
+      <Players showTeams={state.game === "boccia" || (state.game === "baseball" && state.settings.baseball.format !== "together")} />
       {#if editing}
         <form class="rename" onsubmit={(e) => (e.preventDefault(), saveName())}>
           <input type="text" bind:value={newName} maxlength="12" aria-label="なまえ" />

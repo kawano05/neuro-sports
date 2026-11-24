@@ -23,11 +23,19 @@
 
   const GROUPS = {
     baseball: [
-      { key: "speed", label: "円盤[えんばん]の はやさ", options: [["slow", "ゆっくり"], ["normal", "ふつう"], ["fast", "はやい"]] },
+      {
+        key: "speed",
+        label: "円盤[えんばん]の はやさ（1周[しゅう]）",
+        options: [["slowest", "いちばん ゆっくり（12秒[びょう]）"], ["slower", "とても ゆっくり（8秒[びょう]）"], ["slow", "ゆっくり"], ["normal", "ふつう"], ["fast", "はやい"]],
+      },
       { key: "width", label: "当[あ]たる 広[ひろ]さ", options: [["narrow", "せまい"], ["normal", "ふつう"], ["wide", "ひろい"], ["always", "いつでも"]] },
-      { key: "outs", label: "アウト", options: [[true, "あり（チームで しあい）"], [false, "なし（みんなで 合計点[ごうけいてん]）"]] },
-      { key: "innings", label: "何回[なんかい]まで", options: [[1, "1回[かい]"], [2, "2回[かい]"], [3, "3回[かい]"]], when: (set) => set.outs },
-      { key: "atBats", label: "ひとり 何回[なんかい] 打[う]つ", options: [[1, "1"], [3, "3"], [5, "5"], [0, "ずっと"]], when: (set) => !set.outs },
+      {
+        key: "format",
+        label: "試合[しあい]の 形[かたち]",
+        options: [["atbats", "打席制[だせきせい]（1人[ひとり] ◯打席[だせき]）"], ["innings", "イニング制[せい]（3アウト）"], ["together", "みんなで（アウトなし）"]],
+      },
+      { key: "innings", label: "何回[なんかい]まで", options: [[1, "1回[かい]"], [2, "2回[かい]"], [3, "3回[かい]"]], when: (set) => set.format === "innings" },
+      { key: "atBats", label: "ひとり 何打席[なんだせき]", options: [[1, "1"], [2, "2"], [3, "3"], [5, "5"], [0, "ずっと"]], when: (set) => set.format !== "innings" },
       { key: "rotate", label: "交代[こうたい]", options: [["auto", "打[う]ったら つぎの人[ひと]"], ["manual", "支援者[しえんしゃ]が きめる"]] },
       { key: "cue", label: "合図[あいず]の 音[おと]", options: [[true, "あり"], [false, "なし"]] },
     ],

@@ -21,6 +21,8 @@
   import { playerById, TURN_GUARD_MS } from "../lib/engine.js";
   import {
     FENCE_R,
+    LINE_R,
+    fenceR,
     HOME as H,
     INFIELD_R,
     LAUNCH,
@@ -40,7 +42,9 @@
   const bb = $derived(state.baseball);
   const isHost = $derived($session.mode === "host" || $session.mode === "solo");
   const batter = $derived(playerById(state, state.turn?.playerId ?? bb?.hit?.playerId));
-  const teamMode = $derived(bb?.mode === "team");
+  // チームで戦う形（打席制・イニング制）。みんなで（アウトなし）は、チームなし。
+  const teamMode = $derived(!!bb && bb.mode !== "together");
+  const inningsMode = $derived(bb?.mode === "innings");
 
   // --- 時計 -------------------------------------------------------------
   let now = $state(session.hostNow());
@@ -102,23 +106,29 @@
   const resultName = (n) => (n === OUT ? (teamMode ? "アウト" : "ヒット") : HIT_LABELS[n]);
   const resultColor = (n) => (n === OUT && !teamMode ? RESULT_COLOR[1] : RESULT_COLOR[n]);
 
-  const fan = (r) => {
+  // フェンスはセンターが遠く、線ぞいが近い（fenceR）。d だけ外（負なら内）へずらした線。
+  const fenceLine = (from, to, d = 0) => {
+    const steps = Math.max(2, Math.ceil(Math.abs(to - from) / 1.5));
+    return Array.from({ length: steps + 1 }, (_, i) => {
+      const s = from + ((to - from) * i) / steps;
+      const p = spray(fenceR(s) + d, s);
+      return `${i ? "L" : "M"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
+    }).join(" ");
+  };
+  const fan = (d = 0) => `M ${H.x} ${H.y} ${fenceLine(-45, 45, d).replace(/^M/, "L")} Z`;
+  /** 本塁を中心にした、半径 r の扇（内野の土）。 */
+  const circleFan = (r) => {
     const a = spray(r, -45);
     const b = spray(r, 45);
     return `M ${H.x} ${H.y} L ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${r} ${r} 0 0 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)} Z`;
   };
-  const wallArc = (from, to, r) => {
-    const a = spray(r, from);
-    const b = spray(r, to);
-    return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${r} ${r} 0 0 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
-  };
-  // スタンドの席（決まった並び）。
+  const wallArc = (from, to, d) => fenceLine(from, to, d);
+  // スタンドの席（決まった並び。フェンスの形にそう）。
   const SEATS = Array.from({ length: 5 }, (_, row) => {
-    const r = FENCE_R + 40 + row * 30;
     const count = 26 + row * 2;
     return Array.from({ length: count }, (_, i) => {
       const s = -43 + (86 * i) / (count - 1);
-      return { ...spray(r, s), a: s };
+      return { ...spray(fenceR(s) + 40 + row * 30, s), a: s };
     });
   }).flat();
 
@@ -226,7 +236,7 @@
     if (bb?.phase !== "result" || bb.last?.n !== 4 || !bb.resultAt) return [];
     const k = (now - bb.resultAt) / 1300;
     if (k < 0 || k > 1) return [];
-    const base = spray(FENCE_R + 90, 0);
+    const base = spray(fenceR(0) + 90, 0);
     return [
       { dx: -150, dy: 10, c: "#FFD400", d: 0 },
       { dx: 150, dy: -10, c: "#FF5C8A", d: 0.15 },
@@ -280,16 +290,16 @@
 
     <!-- 盤 -->
     <rect x="-600" y="-400" width="2200" height="2000" fill="#4FA656" />
-    <path d={fan(STANDS_R)} fill="#8E9AAF" />
+    <path d={fan(STANDS_R - FENCE_R)} fill="#8E9AAF" />
     {#each SEATS as seat}
       <rect x={seat.x - 9} y={seat.y - 5} width="18" height="10" rx="3" fill="#B9C3D4" transform={`rotate(${seat.a} ${seat.x} ${seat.y})`} />
     {/each}
-    <path d={fan(FENCE_R)} fill="url(#mow)" stroke="#1A1A1A" stroke-width="4" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
-    <path d={fan(INFIELD_R)} fill="#E2B57E" />
+    <path d={fan(0)} fill="url(#mow)" stroke="#1A1A1A" stroke-width="4" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+    <path d={circleFan(INFIELD_R)} fill="#E2B57E" />
     <path d={`M ${H.x} ${H.y} L ${FIRST.x} ${FIRST.y} L ${SECOND.x} ${SECOND.y} L ${THIRD.x} ${THIRD.y} Z`} fill="url(#mow)" />
     {#each [-45, 45] as s}
       {@const p0 = spray(72, s)}
-      {@const p1 = spray(FENCE_R, s)}
+      {@const p1 = spray(LINE_R, s)}
       <line x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke="#FFFFFF" stroke-width="4" vector-effect="non-scaling-stroke" />
     {/each}
     {#each [FIRST, SECOND, THIRD] as b}
@@ -298,10 +308,23 @@
 
     <!-- フェンスの区画（内側に色の帯、名前はフェンスの外のスタンドに） -->
     {#each WALL as wall}
-      {@const mid = spray(FENCE_R + 34, (wall.from + wall.to) / 2)}
-      <path d={wallArc(wall.from, wall.to, FENCE_R - 14)} fill="none" stroke={resultColor(wall.n)} stroke-width="26" />
-      <path d={wallArc(wall.to - 0.4, wall.to + 0.4, FENCE_R - 14)} fill="none" stroke="#1A1A1A" stroke-width="28" />
-      <text x={mid.x} y={mid.y} text-anchor="middle" dominant-baseline="middle" font-size="22" font-weight="900" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="6" paint-order="stroke">{resultName(wall.n)}</text>
+      {@const ms = (wall.from + wall.to) / 2}
+      {@const mid = spray(fenceR(ms) + 16, ms)}
+      <path d={wallArc(wall.from, wall.to, -14)} fill="none" stroke={resultColor(wall.n)} stroke-width="26" />
+      <path d={wallArc(wall.to - 0.4, wall.to + 0.4, -14)} fill="none" stroke="#1A1A1A" stroke-width="28" />
+      <!-- 縦書きで、フェンスから外へ（区画がせまくても、となりと重ならない） -->
+      <text
+        x={mid.x}
+        y={mid.y}
+        writing-mode="tb"
+        text-anchor="end"
+        transform={`rotate(${ms.toFixed(1)} ${mid.x.toFixed(1)} ${mid.y.toFixed(1)})`}
+        font-size="22"
+        font-weight="900"
+        fill="#FFFFFF"
+        stroke="#1A1A1A"
+        stroke-width="6"
+        paint-order="stroke">{resultName(wall.n)}</text>
     {/each}
 
     <!-- 穴（ゆっくり来たボールが落ちる） -->
@@ -406,7 +429,8 @@
 
   <!-- 塁・点・アウト -->
   {#if bb}
-    <div class="scorebox" aria-label={teamMode ? `あか ${bb.score.red} あお ${bb.score.blue} アウト ${bb.outs}` : `とくてん ${bb.runs}`}>
+    <div class="scorebox" aria-label={teamMode ? `あか ${bb.score.red} あお ${bb.score.blue}${inningsMode ? ` アウト ${bb.outs}` : ""}` : `とくてん ${bb.runs}`}>
+      {#if bb.mode !== "atbats"}
       <svg class="bases" viewBox="-44 -40 88 64" aria-hidden="true">
         {#each [{ x: 0, y: -22, i: 1 }, { x: 24, y: 2, i: 0 }, { x: -24, y: 2, i: 2 }] as b}
           <rect
@@ -421,17 +445,22 @@
           />
         {/each}
       </svg>
+      {/if}
       {#if teamMode}
         <div class="team-board">
-          <span class="inning">{@html rb(`${bb.inning}回[かい] ${bb.half === 0 ? "表[おもて]" : "裏[うら]"}`)}</span>
+          {#if inningsMode}
+            <span class="inning">{@html rb(`${bb.inning}回[かい] ${bb.half === 0 ? "表[おもて]" : "裏[うら]"}`)}</span>
+          {/if}
           <span class="teams">
             {#each bb.teams as team}
               <span class="team {team}" class:batting={bb.batting === team}>{TEAM_LABELS[team]} <b>{bb.score[team]}</b></span>
             {/each}
           </span>
-          <span class="outs" aria-hidden="true">
-            {#each [0, 1, 2] as i}<span class="out-dot" class:on={i < bb.outs}></span>{/each}
-          </span>
+          {#if inningsMode}
+            <span class="outs" aria-hidden="true">
+              {#each [0, 1, 2] as i}<span class="out-dot" class:on={i < bb.outs}></span>{/each}
+            </span>
+          {/if}
         </div>
       {:else}
         <span class="runs">

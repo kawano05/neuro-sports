@@ -22,9 +22,9 @@
   const team = $derived(
     state.game === "boccia"
       ? state.boccia?.teams?.length > 1 ? state.boccia.current?.team : null
-      : state.baseball?.mode === "team" && state.baseball.teams.length > 1 ? state.baseball.batting : null
+      : state.baseball && state.baseball.mode !== "together" && state.baseball.teams.length > 1 ? state.baseball.batting : null
   );
-  const showTeams = $derived(state.game === "boccia" || state.baseball?.mode === "team");
+  const showTeams = $derived(state.game === "boccia" || (!!state.baseball && state.baseball.mode !== "together"));
 
   const again = () => session.act({ type: "start", game: state.game });
   const back = () => session.act({ type: "stop" });

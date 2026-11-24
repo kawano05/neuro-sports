@@ -522,7 +522,7 @@ function finishBaseball(s, now) {
     const { red, blue } = bb.score;
     bb.winner = red === blue ? null : red > blue ? "red" : "blue";
   }
-  pushEvent(s, now, { kind: "done", game: "baseball", mode: bb.mode, runs: bb.runs, score: { ...bb.score }, winner: bb.winner });
+  pushEvent(s, now, { kind: "done", game: "baseball", mode: bb.mode, teams: bb.teams.length, runs: bb.runs, score: { ...bb.score }, winner: bb.winner });
 }
 
 /** 次のボールへ（交代・チェンジ・おわりも、ここで決める）。 */

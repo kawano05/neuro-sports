@@ -64,18 +64,18 @@ session.onEvents((events, state) => {
       case "result": {
         if (e.n === 0) {
           audio.chime(330, 0, 0.8);
-          say(`アウト。${e.outs >= 3 ? "スリーアウト" : `${e.outs}アウト`}`);
+          say(e.mode === "innings" ? `アウト。${e.outs >= 3 ? "スリーアウト" : `${e.outs}アウト`}` : "アウト");
         } else {
           if (e.n === 4) audio.cheer(1.6);
           else audio.chime(523.25 + e.n * 110, 0, 0.8);
-          const runs = e.runs > 0 ? `。${e.runs}てん はいった` : "";
+          const runs = e.mode === "atbats" ? `。${e.runs}てん` : e.runs > 0 ? `。${e.runs}てん はいった` : "";
           say(`${HIT_LABELS[e.n]}${runs}`);
         }
         break;
       }
       case "change":
         audio.turn();
-        say(`チェンジ。${TEAM_LABELS[e.team]}の こうげき`);
+        say(`${e.reason === "round" ? "だしゃ いちじゅん。" : ""}チェンジ。${TEAM_LABELS[e.team]}の こうげき`);
         break;
       case "cheer":
         if (!mine) audio.cheerPop();
@@ -101,8 +101,10 @@ session.onEvents((events, state) => {
       }
       case "done":
         audio.fanfare();
-        if (e.mode === "team" && e.score) {
+        if (e.mode !== "together" && e.teams > 1) {
           say(e.winner ? `しあい しゅうりょう。${TEAM_LABELS[e.winner]}の かち` : "しあい しゅうりょう。ひきわけ");
+        } else if (e.mode !== "together") {
+          say(`おわり。みんなで ${(e.score?.red || 0) + (e.score?.blue || 0)}てん`);
         } else say(`おわり。みんなで ${e.runs}てん`);
         break;
       case "start":
