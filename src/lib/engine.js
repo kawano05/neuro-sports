@@ -33,8 +33,21 @@ import {
 
 export const GAMES = ["baseball", "boccia"];
 
-/** 人ごとの色（はっきり分かれる8色）。ボッチャのチームの色（赤・青）とは別。 */
+/** 遊ぶ人ごとの色（はっきり分かれる8色）。ボッチャのチームの色（赤・青）とは別。 */
 export const PLAYER_COLORS = ["#F2B705", "#2E9E44", "#8E44AD", "#F07D1A", "#14A3A3", "#D6458B", "#5B6BD6", "#8C5A2B"];
+/** 見るだけの人の色。 */
+export const WATCH_COLOR = "#D5D0C4";
+
+/**
+ * 部屋の人数の上限。
+ *   あそぶ … 8人まで。色が重ならず、野球の1巡が長くなりすぎない（8人×3回で3〜4分）。
+ *           ボッチャは 4対4 まで（本物の団体戦は 3対3）。
+ *   部屋全体 … 20人まで（見るだけ 12人）。状態はホストの端末がまとめて全員へ配るので、
+ *           iPad がホストでも重くならない数にしておく。
+ * あそぶ人がいっぱいのときに来た人は、見るだけで入る（出来事 "full" で知らせる）。
+ */
+export const MAX_PLAYING = 8;
+export const MAX_IN_ROOM = 20;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   baseball: Object.freeze({ speed: "normal", width: "wide", atBats: 3, rotate: "auto", cue: true }),
@@ -87,6 +100,34 @@ export function playerById(state, id) {
   return state.players.find((p) => p.id === id) || null;
 }
 
+/** id の人を除いた、つながっている「あそぶ」人の数。 */
+export function playingCount(state, exceptId = null) {
+  return state.players.filter((p) => p.connected && p.role === "play" && p.id !== exceptId).length;
+}
+
+/** id の人が入れるか（入り直しの人は、いつでも入れる）。 */
+export function roomHasSpace(state, id) {
+  const existing = playerById(state, id);
+  if (existing) return true;
+  return state.players.filter((p) => p.connected).length < MAX_IN_ROOM;
+}
+
+/** あいている色（つながっている「あそぶ」人が使っていない色）。 */
+function freeColor(s, exceptId) {
+  const used = new Set(s.players.filter((p) => p.connected && p.role === "play" && p.id !== exceptId).map((p) => p.color));
+  return PLAYER_COLORS.find((c) => !used.has(c)) || PLAYER_COLORS[0];
+}
+
+/** 役わり（あそぶ／見るだけ）に合わせて色を決め直す。 */
+function fitColor(s, player) {
+  if (player.role !== "play") {
+    player.color = WATCH_COLOR;
+    return;
+  }
+  const taken = s.players.some((p) => p.id !== player.id && p.connected && p.role === "play" && p.color === player.color);
+  if (taken || !PLAYER_COLORS.includes(player.color)) player.color = freeColor(s, player.id);
+}
+
 function pushEvent(s, now, event) {
   s.eventSeq += 1;
   s.events.push({ id: s.eventSeq, at: now, ...event });
@@ -124,26 +165,32 @@ function apply(s, action, now, rng) {
     case "join": {
       const incoming = action.player;
       const existing = playerById(s, incoming.id);
-      if (existing) {
-        existing.connected = true;
-        if (incoming.name) existing.name = incoming.name;
-        if (incoming.role) existing.role = incoming.role;
+      if (!existing && !roomHasSpace(s, incoming.id)) return false;
+      const wantsPlay = incoming.role !== "watch";
+      const canPlay = playingCount(s, incoming.id) < MAX_PLAYING;
+      const role = wantsPlay && canPlay ? "play" : "watch";
+      let player = existing;
+      if (player) {
+        player.connected = true;
+        if (incoming.name) player.name = incoming.name;
+        if (incoming.role) player.role = role;
       } else {
-        const used = new Set(s.players.map((p) => p.color));
-        const color = PLAYER_COLORS.find((c) => !used.has(c)) || PLAYER_COLORS[s.players.length % PLAYER_COLORS.length];
         // ボッチャのチームは、来た順に 赤・青・赤・青……（あとでホストが変えられる）。
         const playing = s.players.filter((p) => p.role === "play").length;
-        s.players.push({
+        player = {
           id: incoming.id,
           name: (incoming.name || "").slice(0, 12) || `${s.players.length + 1}ばん`,
-          color,
-          role: incoming.role === "watch" ? "watch" : "play",
+          color: WATCH_COLOR,
+          role,
           team: TEAMS[playing % 2],
           connected: true,
           host: !!incoming.host,
-        });
+        };
+        s.players.push(player);
       }
+      fitColor(s, player);
       pushEvent(s, now, { kind: "join", playerId: incoming.id });
+      if (wantsPlay && !canPlay && (incoming.role || !existing)) pushEvent(s, now, { kind: "full", playerId: incoming.id });
       // 遊んでいる途中で、だれの番でもなければ、この人の番にする。
       if (s.screen === "game" && !s.turn) startTurnFor(s, now, rng);
       return true;
@@ -165,7 +212,9 @@ function apply(s, action, now, rng) {
     case "setRole": {
       const player = playerById(s, action.id);
       if (!player || (action.role !== "play" && action.role !== "watch") || player.role === action.role) return false;
+      if (action.role === "play" && playingCount(s, player.id) >= MAX_PLAYING) return false;
       player.role = action.role;
+      fitColor(s, player);
       if (action.role === "watch" && s.turn?.playerId === player.id && s.screen === "game") passTurn(s, now, rng);
       if (action.role === "play" && s.screen === "game" && !s.turn) startTurnFor(s, now, rng);
       return true;

@@ -12,7 +12,7 @@
 // =====================================================================
 
 import { writable } from "svelte/store";
-import { createState, nextWake, reduce, playerById } from "./engine.js";
+import { createState, nextWake, reduce, playerById, roomHasSpace } from "./engine.js";
 import { hostRoom, joinRoom, troubleText } from "./net.js";
 import { loadPrefs, savePrefs, clientId } from "./prefs.js";
 
@@ -168,6 +168,11 @@ export function createSession() {
           net.send(conn, { type: "reject", reason: "same-device" });
           return;
         }
+        if (!roomHasSpace(state, playerId)) {
+          net.send(conn, { type: "reject", reason: "full" });
+          setTimeout(() => net?.drop(conn), 500);
+          return;
+        }
         // 同じ人の古い線があれば、閉じる（読み直したとき）。
         for (const [other, otherId] of connPlayer) {
           if (otherId === playerId && other !== conn) {
@@ -274,7 +279,11 @@ export function createSession() {
         onPong(msg);
         return;
       case "reject":
-        store.update((v) => ({ ...v, status: "error", error: "おなじ ブラウザの タブどうしでは はいれません" }));
+        store.update((v) => ({
+          ...v,
+          status: "error",
+          error: msg.reason === "full" ? "へやが いっぱいです（20人まで）" : "おなじ ブラウザの タブどうしでは はいれません",
+        }));
         net?.close();
         net = null;
         return;

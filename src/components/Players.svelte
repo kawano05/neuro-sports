@@ -1,7 +1,10 @@
 <script>
   // 部屋にいる人。番の人は黄色く光る。押した人は、その場で弾む（だれが押したかが分かる）。
+  // 野球では、名前の横に打席の数だけ丸を並べ、打つたびに埋める（あと何回打てるかが見える）。
+  // 打った丸は黒、ホームランは円盤の真ん中と同じオレンジ。番の人の行（黄色）の上でも見分けられる。
   import { onMount } from "svelte";
   import { session } from "../lib/app.js";
+  import { MAX_PLAYING, playingCount } from "../lib/engine.js";
   import { rb, TEAM_LABELS } from "../lib/text.js";
 
   /** compact … 遊んでいるあいだの細い列。full … 待っている部屋の大きい列（ホストの操作つき）。 */
@@ -10,6 +13,17 @@
   const state = $derived($session.state);
   const myId = $derived($session.myId);
   const isHost = $derived($session.mode === "host" || $session.mode === "solo");
+  // あそぶ人が8人いると、見るだけの人は あそぶ に変えられない。
+  const playFull = $derived(playingCount(state) >= MAX_PLAYING);
+
+  // 野球の打席の丸。
+  const bb = $derived(state.game === "baseball" && state.screen === "game" ? state.baseball : null);
+  const atBatLimit = $derived(Number(state.settings.baseball.atBats) || 0);
+  function slots(id) {
+    const hits = (bb?.log || []).filter((l) => l.playerId === id).map((l) => l.n);
+    if (atBatLimit > 0) return Array.from({ length: atBatLimit }, (_, i) => hits[i] ?? 0);
+    return hits;
+  }
 
   // 押した人を、少しのあいだ光らせる。
   let pulses = $state({});
@@ -63,18 +77,27 @@
         {#if pulse?.kind === "cheer"}<span class="flag" aria-hidden="true">📣</span>{/if}
       </button>
 
+      {#if bb && player.role === "play"}
+        <span class="slots" aria-label={`${slots(player.id).filter(Boolean).length}かい うった`}>
+          {#each slots(player.id) as n}
+            <span class="slot" class:hit={n > 0} class:hr={n === 4}></span>
+          {/each}
+        </span>
+      {/if}
+
       {#if !compact}
         <div class="controls">
           {#if isHost || player.id === myId}
             <button
               class="btn small"
               type="button"
+              disabled={player.role === "watch" && playFull}
               onclick={() =>
                 player.id === myId
                   ? session.setMyRole(player.role === "play" ? "watch" : "play")
                   : session.act({ type: "setRole", id: player.id, role: player.role === "play" ? "watch" : "play" })}
             >
-              {@html rb(player.role === "play" ? "あそぶ" : "見[み]るだけ")}
+              {@html rb(player.role === "play" ? "あそぶ" : playFull ? "見[み]るだけ（いっぱい）" : "見[み]るだけ")}
             </button>
           {:else}
             <span class="role">{@html rb(player.role === "play" ? "あそぶ" : "見[み]るだけ")}</span>
@@ -226,5 +249,24 @@
   .team.blue {
     background: var(--blue);
     color: #fff;
+  }
+  .slots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .slot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2.5px solid var(--line);
+    background: #ffffff;
+  }
+  .slot.hit {
+    background: var(--line);
+  }
+  .slot.hr {
+    background: #ff9f1c;
   }
 </style>

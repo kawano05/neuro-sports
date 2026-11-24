@@ -21,7 +21,7 @@ import {
   TURNTABLE,
   placeJack,
 } from "../src/lib/games/boccia.js";
-import { createState, reduce, activePlayers, TURN_GUARD_MS } from "../src/lib/engine.js";
+import { createState, reduce, activePlayers, TURN_GUARD_MS, MAX_PLAYING, MAX_IN_ROOM, PLAYER_COLORS, WATCH_COLOR, roomHasSpace } from "../src/lib/engine.js";
 import { rb, plain } from "../src/lib/text.js";
 
 let passed = 0;
@@ -295,6 +295,36 @@ test("ふりがなの文は1つの span にまとまる（横並びの中で漢�
   assert.equal(html, '<span class="rb"><ruby>部屋<rt aria-hidden="true">へや</rt></ruby>を つくる</span>');
   assert.equal(plain("部屋[へや]を つくる"), "へやを つくる");
   assert.ok(!rb("<b>").includes("<b>"));
+});
+
+test("あそぶのは8人まで。9人目は見るだけで入り、色は重ならない", () => {
+  let s = createState({ roomCode: "1234" });
+  for (let i = 0; i < MAX_PLAYING + 1; i += 1) s = reduce(s, { type: "join", player: { id: `p${i}`, name: `p${i}` } }, i);
+  const playing = s.players.filter((p) => p.role === "play");
+  assert.equal(playing.length, MAX_PLAYING);
+  assert.equal(new Set(playing.map((p) => p.color)).size, MAX_PLAYING);
+  assert.ok(playing.every((p) => PLAYER_COLORS.includes(p.color)));
+  const ninth = s.players.at(-1);
+  assert.equal(ninth.role, "watch");
+  assert.equal(ninth.color, WATCH_COLOR);
+  assert.equal(s.events.at(-1).kind, "full");
+  // いっぱいのあいだは、見るだけから あそぶ に変えられない。
+  const same = reduce(s, { type: "setRole", id: ninth.id, role: "play" }, 50);
+  assert.equal(same, s);
+  // ひとり抜けると、変えられる（あいた色をもらう）。
+  s = reduce(s, { type: "leave", id: "p0" }, 60);
+  s = reduce(s, { type: "setRole", id: ninth.id, role: "play" }, 70);
+  const now = s.players.find((p) => p.id === ninth.id);
+  assert.equal(now.role, "play");
+  assert.ok(PLAYER_COLORS.includes(now.color));
+});
+
+test("部屋は20人まで。入り直しの人は入れる", () => {
+  let s = createState({ roomCode: "1234" });
+  for (let i = 0; i < MAX_IN_ROOM; i += 1) s = reduce(s, { type: "join", player: { id: `p${i}`, name: `p${i}`, role: "watch" } }, i);
+  assert.equal(roomHasSpace(s, "new"), false);
+  assert.equal(reduce(s, { type: "join", player: { id: "new", name: "new" } }, 99), s);
+  assert.equal(roomHasSpace(s, "p3"), true);
 });
 
 for (const { name, error } of failures) {

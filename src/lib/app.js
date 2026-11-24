@@ -96,6 +96,9 @@ session.onEvents((events, state) => {
       case "join":
         if (state.screen === "room" && e.playerId !== myId) audio.chime(659.25, 0, 0.6);
         break;
+      case "full":
+        if (e.playerId === myId) say("あそぶ ひとが いっぱいなので、みるだけで はいりました");
+        break;
       default:
     }
   }

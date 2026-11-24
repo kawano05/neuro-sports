@@ -115,12 +115,14 @@
     min-height: 100dvh;
     display: grid;
     grid-template-rows: auto auto 1fr auto;
+    grid-template-areas: "bar" "notice" "body" "press";
     gap: 14px;
     padding: 14px 16px 18px;
     max-width: 1200px;
     margin: 0 auto;
   }
   .bar {
+    grid-area: bar;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -150,6 +152,7 @@
     font-variant-numeric: tabular-nums;
   }
   .notice {
+    grid-area: notice;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -162,6 +165,7 @@
     font-weight: 800;
   }
   .body {
+    grid-area: body;
     display: grid;
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
     gap: 18px;
@@ -226,6 +230,7 @@
     justify-self: start;
   }
   .press-area {
+    grid-area: press;
     height: clamp(96px, 18vh, 150px);
   }
 </style>
