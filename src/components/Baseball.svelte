@@ -1,10 +1,15 @@
 <script>
   // =====================================================================
-  // 野球の画面。左（縦の画面では下）がバッターボックスの寄り、右（上）が小さな球場。
+  // 野球の画面（1つの球場）。
   //
-  // バッターボックスの前で円盤が回る。ふちのボールが、黄色い帯（あたる ところ）に
-  // 来たときに押すと打てる。帯の真ん中のオレンジに近いほど遠くへ飛ぶ。
-  // 帯の広さは、支援者の設定（当たる広さ）と円盤の速さで決まる（見たとおりに当たる）。
+  // ふだんはバッターボックスに寄っている。バッターボックスの前で円盤が回り、ふちの
+  // ボールが黄色い帯（あたる ところ）に来たときに押すと打てる。帯の真ん中のオレンジに
+  // 近いほど遠くへ飛ぶ。帯の広さは、支援者の設定（当たる広さ）と円盤の速さで決まる。
+  //
+  // 打つと、カメラが球場全体へ引いて、球を追う。球の影と、通った線と、落ちたところの輪で、
+  // どこへ飛んだかが分かる。次のボールの前に、またバッターボックスへ寄る。
+  // （以前は、バッターボックスと小さな球場を2つ並べていて、球がどこへ飛んだか分かりにくかった。）
+  // 塁と得点は、右上の小さな札にまとめる。
   //
   // 角度も判定も、ホストの時計（session.hostNow）で見る。どの画面でも同じ位置に見える。
   // =====================================================================
@@ -35,17 +40,9 @@
     return () => cancelAnimationFrame(raf);
   });
 
-  // --- バッターボックスの形（viewBox 0 0 600 660） ---------------------------
-  const C = { x: 330, y: 250 };
-  const R = 160;
-  const RB = 128;
-  const BALL = 27;
-  const SWEET = { x: C.x, y: C.y + RB };
-  const PIVOT = { x: 150, y: SWEET.y };
-  const BAT_LEN = 280;
-  const REST = 112;
-  const CONTACT = 0;
-  const FOLLOW = -58;
+  // 画面の大きさ（球の大きさを、カメラが引いても見える大きさに保つため）。
+  let w = $state(0);
+  let h = $state(0);
 
   const lerp = (a, b, k) => a + (b - a) * k;
   const clamp01 = (k) => Math.max(0, Math.min(1, k));
@@ -54,6 +51,17 @@
   const easeInOut = (k) => (k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2);
   const polar = (cx, cy, r, deg) => ({ x: cx + r * Math.cos((deg * Math.PI) / 180), y: cy + r * Math.sin((deg * Math.PI) / 180) });
 
+  // --- バッターボックスの絵（この中の座標。本塁が 330,500） ----------------------
+  const C = { x: 330, y: 250 };
+  const R = 160;
+  const RB = 128;
+  const BALL = 27;
+  const SWEET = { x: C.x, y: C.y + RB };
+  const PIVOT = { x: 150, y: SWEET.y };
+  const REST = 112;
+  const CONTACT = 0;
+  const FOLLOW = -58;
+
   function arcPath(r, a0, a1) {
     const p0 = polar(C.x, C.y, r, a0);
     const p1 = polar(C.x, C.y, r, a1);
@@ -61,10 +69,48 @@
     return `M ${p0.x.toFixed(1)} ${p0.y.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
   }
 
-  // あたる ところ（黄色）と、まんなか（オレンジ = ホームラン）の角度の半分。
-  const zoneHalf = $derived(bb ? Math.min(180, (bb.window / bb.period) * 360) : 0);
+  // --- 球場（本塁が 500,1000。上が外野） --------------------------------------
+  // バッターボックスの絵は、本塁に合わせて 1/4 にして置く。
+  const S = 0.25;
+  const BOX_AT = { x: 500 - 330 * S, y: 1000 - 500 * S };
+  const toField = (p) => ({ x: BOX_AT.x + p.x * S, y: BOX_AT.y + p.y * S });
+  const H = { x: 500, y: 1000 };
+  const SWEET_F = toField(SWEET);
+  const BASE_D = 160;
+  const FIRST = polar(H.x, H.y, BASE_D, -45);
+  const SECOND = { x: H.x, y: H.y - BASE_D * Math.SQRT2 };
+  const THIRD = polar(H.x, H.y, BASE_D, -135);
+  const FENCE_R = 600;
+  const STANDS_R = 780;
+  /** 落ちるところの、本塁からの距離（何塁打か）。ホームランはフェンスの向こう。 */
+  const LAND = { 1: 300, 2: 430, 3: 545, 4: 700 };
 
-  // 円盤の回転（度）。ボールは円盤に乗って回る。
+  const fan = (r) => {
+    const a = polar(H.x, H.y, r, -135);
+    const b = polar(H.x, H.y, r, -45);
+    return `M ${H.x} ${H.y} L ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${r} ${r} 0 0 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)} Z`;
+  };
+  const arcOnly = (r) => {
+    const a = polar(H.x, H.y, r, -135);
+    const b = polar(H.x, H.y, r, -45);
+    return `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${r} ${r} 0 0 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  };
+  // スタンドの席（決まった並び）。
+  const SEATS = Array.from({ length: 5 }, (_, row) => {
+    const r = FENCE_R + 40 + row * 30;
+    const count = 26 + row * 2;
+    return Array.from({ length: count }, (_, i) => {
+      const a = -133 + (86 * i) / (count - 1);
+      return { ...polar(H.x, H.y, r, a), a };
+    });
+  }).flat();
+
+  // --- カメラ ------------------------------------------------------------
+  const BOX_VIEW = { x: 418, y: 878, w: 164, h: 168 };
+  const FIELD_VIEW = { x: 20, y: 170, w: 960, h: 880 };
+
+  // --- あたる ところ・円盤 ----------------------------------------------------
+  const zoneHalf = $derived(bb ? Math.min(180, (bb.window / bb.period) * 360) : 0);
   const spinDeg = $derived(bb ? (ballAngle(now, bb.sweetAt, bb.period) * 180) / Math.PI : 0);
 
   // --- バット（押した瞬間に振る） ------------------------------------------
@@ -120,89 +166,70 @@
     };
   });
 
-  // 飛んでいく球（バッターボックスの中）。早く振ると左へ、遅いと右へ。
-  const flight = $derived.by(() => {
-    if (!hit) return null;
-    const k = clamp01((now - hit.t - 70) / 720);
-    const side = Math.max(-1, Math.min(1, hit.offset / (bb?.window || 1)));
-    const to = { x: C.x + side * 260, y: -140 };
-    const e = easeOut(k);
-    return {
-      k,
-      x: lerp(SWEET.x, to.x, e),
-      y: lerp(SWEET.y, to.y, e),
-      scale: 1 + 0.7 * Math.sin(Math.PI * Math.min(1, k * 0.9)),
-      side,
-    };
-  });
   const showBallOnDisc = $derived(bb && bb.phase === "spin" && !hit);
   const burst = $derived(hit && now - hit.t >= 0 && now - hit.t < 320 ? clamp01((now - hit.t) / 320) : null);
 
-  // --- 小さな球場（viewBox 0 0 400 400） ----------------------------------
-  const H = { x: 200, y: 352 };
-  const BASES = [H, { x: 290, y: 262 }, { x: 200, y: 172 }, { x: 110, y: 262 }, H];
-  const FENCE_R = 270;
-  const LAND = { 1: 150, 2: 205, 3: 245, 4: 330 };
+  // カメラ: 打つと引いて、次のボールの前に戻る。
+  const TOTAL = FLIGHT_MS + RUN_MS;
+  const camMix = $derived.by(() => {
+    if (!hit) return 0;
+    const out = easeInOut(clamp01((now - hit.t - 140) / 620));
+    const back = easeInOut(clamp01((now - hit.t - (TOTAL - 700)) / 700));
+    return out * (1 - back);
+  });
+  const view = $derived({
+    x: lerp(BOX_VIEW.x, FIELD_VIEW.x, camMix),
+    y: lerp(BOX_VIEW.y, FIELD_VIEW.y, camMix),
+    w: lerp(BOX_VIEW.w, FIELD_VIEW.w, camMix),
+    h: lerp(BOX_VIEW.h, FIELD_VIEW.h, camMix),
+  });
+  /** いまの画面で、1単位が何ピクセルか。 */
+  const ppu = $derived(w && h ? Math.min(w / view.w, h / view.h) : 1);
 
-  function onPath(s) {
-    const i = Math.min(3, Math.floor(s));
-    const f = s - i;
-    return { x: lerp(BASES[i].x, BASES[i + 1].x, f), y: lerp(BASES[i].y, BASES[i + 1].y, f) };
-  }
-
-  const fieldBall = $derived.by(() => {
+  // 飛んでいく球。早く振ると左へ、遅いと右へ。地面の影と、通った線を残す。
+  const AIR_MS = FLIGHT_MS * 0.78;
+  const flight = $derived.by(() => {
     if (!hit) return null;
-    const k = clamp01((now - hit.t) / FLIGHT_MS);
+    const t = now - hit.t - 60;
+    if (t < 0) return null;
     const side = Math.max(-1, Math.min(1, hit.offset / (bb?.window || 1)));
-    const a = -90 + side * 35;
+    const a = -90 + side * 32;
     const land = polar(H.x, H.y, LAND[hit.n], a);
-    const e = easeOut(k);
-    return {
-      k,
-      x: lerp(H.x, land.x, e),
-      y: lerp(H.y, land.y, e),
-      scale: 1 + Math.sin(Math.PI * k) * (0.5 + hit.n * 0.3),
-      land,
-    };
-  });
-
-  // ランナー。打ったあと、球が飛んでいるあいだに走り出す。
-  const runners = $derived.by(() => {
-    if (!bb) return [];
-    const confirmed = bb.phase === "flight" && bb.hit;
-    if (!confirmed) {
-      const list = bb.bases.map((id, i) => (id ? { id, s: i + 1, scored: false } : null)).filter(Boolean);
-      // 先取りの当たり: バッターは本塁に立っている。
-      if (hit) list.push({ id: hit.playerId, s: 0, scored: false });
-      return list;
+    const k = clamp01(t / AIR_MS);
+    let ground = { x: lerp(SWEET_F.x, land.x, k), y: lerp(SWEET_F.y, land.y, k) };
+    let height = Math.sin(Math.PI * k) * (0.35 + 0.22 * hit.n);
+    const landed = k >= 1;
+    let settle = 0;
+    if (landed && hit.n < 4) {
+      // 落ちたあと、少しはねて転がる。
+      settle = clamp01((t - AIR_MS) / 600);
+      ground = polar(H.x, H.y, LAND[hit.n] + 45 * easeOut(settle), a);
+      height = Math.abs(Math.sin(Math.PI * settle * 2)) * 0.12 * (1 - settle);
     }
-    const k = easeInOut(clamp01((now - bb.hit.t - FLIGHT_MS * 0.5) / (FLIGHT_MS * 0.5 + RUN_MS * 0.7)));
-    const starts = bb.prevBases.map((id, i) => (id ? { id, from: i + 1 } : null)).filter(Boolean);
-    starts.push({ id: bb.hit.playerId, from: 0 });
-    return starts.map(({ id, from }) => {
-      const at = bb.bases.indexOf(id);
-      const to = at >= 0 ? at + 1 : 4;
-      return { id, s: lerp(from, to, k), scored: to === 4, k };
-    });
+    return { ground, height, land, landed, sinceLand: landed ? t - AIR_MS : 0, a };
   });
+  const ballR = $derived(Math.max(BALL * S, 15 / ppu));
 
-  const scoredFlash = $derived(
-    bb?.phase === "flight" && bb.scored?.length && now - bb.hit.t > FLIGHT_MS * 0.5 + (FLIGHT_MS * 0.5 + RUN_MS * 0.7) * 0.85
-      ? bb.scored.length
-      : 0
-  );
-
-  // ホームランの はなび（球場の空）。
+  // ホームランの はなび（スタンドの上）。
   const fireworks = $derived.by(() => {
-    if (!hit || hit.n !== 4) return [];
-    const k = (now - hit.t - FLIGHT_MS * 0.7) / 1400;
-    if (k < 0 || k > 1) return [];
+    if (!hit || hit.n !== 4 || !flight?.landed) return [];
+    const k = flight.sinceLand / 1300;
+    if (k > 1) return [];
+    const base = flight.land;
     return [
-      { x: 90, y: 70, c: "#FFD400", d: 0 },
-      { x: 300, y: 55, c: "#FF5C8A", d: 0.15 },
-      { x: 200, y: 30, c: "#5BC8FF", d: 0.3 },
-    ].map((f) => ({ ...f, k: clamp01((k - f.d) / 0.6) }));
+      { dx: -150, dy: -40, c: "#FFD400", d: 0 },
+      { dx: 140, dy: -60, c: "#FF5C8A", d: 0.15 },
+      { dx: 0, dy: -110, c: "#5BC8FF", d: 0.3 },
+    ].map((f) => ({ x: base.x + f.dx, y: base.y + f.dy, c: f.c, k: clamp01((k - f.d) / 0.6) }));
   });
+
+  // --- 右上の札（塁と得点） ---------------------------------------------------
+  // 球が落ちるまでは打つ前の塁、落ちたら打ったあとの塁。
+  const landedNow = $derived(!!(bb?.hit && now - bb.hit.t > 60 + AIR_MS));
+  const shownBases = $derived(bb ? (bb.phase === "flight" && bb.hit && !landedNow ? bb.prevBases : bb.bases) : [null, null, null]);
+  const shownRuns = $derived(bb ? (bb.phase === "flight" && bb.hit && !landedNow ? bb.runs - (bb.scored?.length || 0) : bb.runs) : 0);
+  const scoredFlash = $derived(bb?.phase === "flight" && landedNow && bb.scored?.length ? bb.scored.length : 0);
+  const baseColor = (id) => playerById(state, id)?.color || "#FFFFFF";
 
   // --- 合図の音（ピッ・ピッ・ポーン） ------------------------------------
   // ボールが「あたる ところ」の真ん中に来る瞬間に「ポーン」（パキッとした高い音）。
@@ -231,28 +258,46 @@
     }
   }
 
-  const resultWord = $derived(hit && now - hit.t < FLIGHT_MS + RUN_MS ? `${HIT_LABELS[hit.n]}！` : "");
+  const resultWord = $derived(hit && now - hit.t < TOTAL - 500 ? `${HIT_LABELS[hit.n]}！` : "");
   const hitsBy = (id) => (bb?.log || []).filter((l) => l.playerId === id);
 </script>
 
-<div class="baseball">
-  <!-- バッターボックス -->
-  <div class="box-view">
-    <svg viewBox="24 40 520 600" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <defs>
-        <pattern id="mow" width="60" height="60" patternUnits="userSpaceOnUse">
-          <rect width="60" height="60" fill="#5DBB63" />
-          <rect width="30" height="60" fill="#54B05A" />
-        </pattern>
-      </defs>
-      <rect x="-200" y="-200" width="1000" height="1060" fill="url(#mow)" />
+<div class="baseball" bind:clientWidth={w} bind:clientHeight={h}>
+  <svg viewBox={`${view.x.toFixed(1)} ${view.y.toFixed(1)} ${view.w.toFixed(1)} ${view.h.toFixed(1)}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <defs>
+      <pattern id="mow" width="48" height="48" patternUnits="userSpaceOnUse">
+        <rect width="48" height="48" fill="#5DBB63" />
+        <rect width="24" height="48" fill="#54B05A" />
+      </pattern>
+    </defs>
+
+    <!-- 球場 -->
+    <rect x="-600" y="-400" width="2200" height="2000" fill="#4FA656" />
+    <path d={fan(STANDS_R)} fill="#8E9AAF" />
+    {#each SEATS as seat}
+      <rect x={seat.x - 9} y={seat.y - 5} width="18" height="10" rx="3" fill="#B9C3D4" transform={`rotate(${seat.a + 90} ${seat.x} ${seat.y})`} />
+    {/each}
+    <path d={fan(FENCE_R)} fill="url(#mow)" stroke="#1A1A1A" stroke-width="4" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+    <path d={arcOnly(FENCE_R)} fill="none" stroke="#FFD400" stroke-width="8" vector-effect="non-scaling-stroke" />
+    <path d={fan(255)} fill="#E2B57E" />
+    <path d={`M ${H.x} ${H.y} L ${FIRST.x} ${FIRST.y} L ${SECOND.x} ${SECOND.y} L ${THIRD.x} ${THIRD.y} Z`} fill="url(#mow)" />
+    <circle cx={H.x} cy={H.y - BASE_D * 0.75} r="24" fill="#E2B57E" />
+    {#each [-45, -135] as a}
+      {@const p0 = polar(H.x, H.y, 72, a)}
+      {@const p1 = polar(H.x, H.y, FENCE_R, a)}
+      <line x1={p0.x} y1={p0.y} x2={p1.x} y2={p1.y} stroke="#FFFFFF" stroke-width="4" vector-effect="non-scaling-stroke" />
+    {/each}
+    {#each [FIRST, SECOND, THIRD] as b}
+      <rect x={b.x - 11} y={b.y - 11} width="22" height="22" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3" vector-effect="non-scaling-stroke" transform={`rotate(45 ${b.x} ${b.y})`} />
+    {/each}
+
+    <!-- バッターボックス（円盤・バッター・バット） -->
+    <g transform={`translate(${BOX_AT.x} ${BOX_AT.y}) scale(${S})`}>
       <circle cx="330" cy="470" r="250" fill="#E2B57E" stroke="#C9965C" stroke-width="6" />
-      <!-- バッターボックスの線と本塁 -->
       <rect x="56" y="350" width="170" height="210" rx="6" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.9" />
       <rect x="434" y="350" width="170" height="210" rx="6" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.9" />
       <path d="M295 470 L365 470 L365 500 L330 530 L295 500 Z" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="4" stroke-linejoin="round" />
 
-      <!-- 円盤の台 -->
       <circle cx={C.x} cy={C.y + 10} r={R + 6} fill="#1A1A1A" opacity="0.25" />
       <circle cx={C.x} cy={C.y} r={R} fill="#FFF3D6" stroke="#1A1A1A" stroke-width="7" />
 
@@ -303,89 +348,68 @@
         <circle cx="-18" cy="0" r="12" fill="#1A1A1A" />
       </g>
 
-      <!-- 打った球 -->
       {#if burst !== null}
         <g transform={`translate(${SWEET.x} ${SWEET.y}) scale(${(0.6 + burst * 1.2).toFixed(2)})`} opacity={(1 - burst).toFixed(2)}>
           <path d="M0 -70 L16 -18 L68 -22 L26 10 L44 62 L0 30 L-44 62 L-26 10 L-68 -22 L-16 -18 Z" fill="#FFF27A" stroke="#1A1A1A" stroke-width="4" stroke-linejoin="round" />
         </g>
       {/if}
-      {#if flight && flight.k < 1}
-        <ellipse cx={flight.x} cy={flight.y + 30 * flight.scale} rx={BALL * 0.9} ry={BALL * 0.45} fill="#1A1A1A" opacity="0.2" />
-        <g transform={`translate(${flight.x.toFixed(1)} ${flight.y.toFixed(1)}) scale(${flight.scale.toFixed(2)})`}>
-          <circle r={BALL} fill="#FFFFFF" stroke="#1A1A1A" stroke-width="5" />
-          <path d="M-11 -18 Q 1 0 -11 18 M11 -18 Q -1 0 11 18" fill="none" stroke="#E0302D" stroke-width="3.6" />
-        </g>
-      {/if}
-    </svg>
+    </g>
 
-    {#if resultWord}
-      <div class="word n{hit.n}" aria-hidden="true">{resultWord}</div>
+    <!-- 飛んでいく球: 通った線・落ちたところの輪・影・球 -->
+    {#if flight}
+      <line x1={SWEET_F.x} y1={SWEET_F.y} x2={flight.ground.x} y2={flight.ground.y} stroke="#FFFFFF" stroke-width={5 / ppu} stroke-linecap="round" opacity="0.85" />
+      {#if flight.landed}
+        {@const k = clamp01(flight.sinceLand / 500)}
+        <circle cx={flight.land.x} cy={flight.land.y} r={(10 + 26 * easeOut(k)) / ppu} fill="none" stroke="#FFFFFF" stroke-width={5 / ppu} opacity={(1 - k * 0.6).toFixed(2)} />
+        <circle cx={flight.land.x} cy={flight.land.y} r={7 / ppu} fill="#1A1A1A" opacity="0.5" />
+      {/if}
+      <ellipse cx={flight.ground.x} cy={flight.ground.y} rx={ballR * 0.95} ry={ballR * 0.5} fill="#1A1A1A" opacity="0.28" />
+      <g transform={`translate(${flight.ground.x.toFixed(1)} ${(flight.ground.y - flight.height * (60 / ppu) * 1.2).toFixed(1)}) scale(${(ballR / BALL) * (1 + flight.height * 0.5)})`}>
+        <circle r={BALL} fill="#FFFFFF" stroke="#1A1A1A" stroke-width="5" />
+        <path d="M-11 -18 Q 1 0 -11 18 M11 -18 Q -1 0 11 18" fill="none" stroke="#E0302D" stroke-width="3.6" />
+      </g>
     {/if}
-    {#if batter && bb?.phase !== "done"}
-      <div class="batter-tag" style="--pc: {batter.color}">{batter.name}</div>
-    {/if}
+
+    {#each fireworks as f}
+      {#if f.k > 0 && f.k < 1}
+        {#each Array.from({ length: 10 }, (_, i) => i * 36) as a}
+          {@const p = polar(f.x, f.y, 14 + f.k * 70, a)}
+          <circle cx={p.x} cy={p.y} r={9 * (1 - f.k) + 3} fill={f.c} stroke="#1A1A1A" stroke-width="2" />
+        {/each}
+      {/if}
+    {/each}
+  </svg>
+
+  {#if resultWord}
+    <div class="word n{hit.n}" aria-hidden="true">{resultWord}</div>
+  {/if}
+
+  <!-- 塁と得点 -->
+  <div class="scorebox" aria-label={`とくてん ${shownRuns}`}>
+    <svg class="bases" viewBox="-44 -40 88 64" aria-hidden="true">
+      {#each [{ x: 0, y: -22, i: 1 }, { x: 24, y: 2, i: 0 }, { x: -24, y: 2, i: 2 }] as b}
+        <rect
+          x={b.x - 10}
+          y={b.y - 10}
+          width="20"
+          height="20"
+          transform={`rotate(45 ${b.x} ${b.y})`}
+          fill={shownBases[b.i] ? baseColor(shownBases[b.i]) : "transparent"}
+          stroke={shownBases[b.i] ? "#FFFFFF" : "#6B6B6B"}
+          stroke-width="3"
+        />
+      {/each}
+    </svg>
+    <span class="runs">
+      <span class="runs-label">{@html rb("得点[とくてん]")}</span>
+      <span class="runs-num">{shownRuns}</span>
+    </span>
+    {#if scoredFlash}<span class="plus">+{scoredFlash}</span>{/if}
   </div>
 
-  <!-- 小さな球場とランナー -->
-  <div class="field-view">
-    <svg viewBox="0 0 400 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <rect x="0" y="0" width="400" height="400" fill="#7FB8E0" />
-      <rect x="0" y="0" width="400" height="120" fill="#8E9AAF" />
-      {#each Array.from({ length: 9 }, (_, i) => i) as i}
-        <rect x={i * 46 + 4} y="14" width="38" height="18" rx="6" fill="#B9C3D4" />
-        <rect x={i * 46 + 24} y="48" width="38" height="18" rx="6" fill="#B9C3D4" />
-      {/each}
-      <path
-        d={`M ${H.x} ${H.y} L ${polar(H.x, H.y, FENCE_R, -135).x} ${polar(H.x, H.y, FENCE_R, -135).y} A ${FENCE_R} ${FENCE_R} 0 0 1 ${polar(H.x, H.y, FENCE_R, -45).x} ${polar(H.x, H.y, FENCE_R, -45).y} Z`}
-        fill="#5DBB63"
-        stroke="#1A1A1A"
-        stroke-width="4"
-        stroke-linejoin="round"
-      />
-      <path
-        d={`M ${polar(H.x, H.y, FENCE_R, -135).x} ${polar(H.x, H.y, FENCE_R, -135).y} A ${FENCE_R} ${FENCE_R} 0 0 1 ${polar(H.x, H.y, FENCE_R, -45).x} ${polar(H.x, H.y, FENCE_R, -45).y}`}
-        fill="none"
-        stroke="#FFD400"
-        stroke-width="8"
-      />
-      <path d="M200 392 L320 262 L200 132 L80 262 Z" fill="#E2B57E" stroke="#C9965C" stroke-width="3" />
-      <path d="M200 352 L290 262 L200 172 L110 262 Z" fill="#5DBB63" />
-      <circle cx="200" cy="262" r="16" fill="#E2B57E" />
-      {#each BASES.slice(1, 4) as b}
-        <rect x={b.x - 11} y={b.y - 11} width="22" height="22" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3" transform={`rotate(45 ${b.x} ${b.y})`} />
-      {/each}
-      <path d="M190 346 L210 346 L210 354 L200 362 L190 354 Z" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3" />
-
-      {#each runners as r (r.id)}
-        {@const p = onPath(r.s)}
-        {@const pl = playerById(state, r.id)}
-        <g transform={`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`} opacity={r.scored && r.k >= 1 ? 0 : 1}>
-          <circle r="18" fill={pl?.color || "#CCCCCC"} stroke="#1A1A1A" stroke-width="4" />
-          <text y="7" text-anchor="middle" font-size="19" font-weight="900" fill="#1A1A1A">{pl?.name?.slice(0, 1) || ""}</text>
-        </g>
-      {/each}
-
-      {#each fireworks as f}
-        {#if f.k > 0 && f.k < 1}
-          {#each Array.from({ length: 10 }, (_, i) => i * 36) as a}
-            {@const p = polar(f.x, f.y, 10 + f.k * 50, a)}
-            <circle cx={p.x} cy={p.y} r={6 * (1 - f.k) + 2} fill={f.c} stroke="#1A1A1A" stroke-width="1.5" />
-          {/each}
-        {/if}
-      {/each}
-
-      {#if fieldBall && fieldBall.k < 1}
-        <circle cx={fieldBall.x} cy={fieldBall.y} r={9 * fieldBall.scale} fill="#FFFFFF" stroke="#1A1A1A" stroke-width="3" />
-      {/if}
-      {#if scoredFlash}
-        <text x={H.x + 48} y={H.y - 8} font-size="40" font-weight="900" fill="#FFFFFF" stroke="#1A1A1A" stroke-width="7" paint-order="stroke">+{scoredFlash}</text>
-      {/if}
-    </svg>
-    <div class="score" aria-label={`とくてん ${bb?.runs ?? 0}`}>
-      <span class="score-label">{@html rb("得点[とくてん]")}</span>
-      <span class="score-num">{bb?.runs ?? 0}</span>
-    </div>
-  </div>
+  {#if batter && bb?.phase !== "done"}
+    <div class="batter-tag" style="--pc: {batter.color}">{batter.name}</div>
+  {/if}
 
   {#if bb?.phase === "done"}
     <div class="done">
@@ -418,35 +442,16 @@
   .baseball {
     position: relative;
     height: 100%;
-    display: grid;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    gap: 12px;
-  }
-  @media (orientation: portrait) {
-    .baseball {
-      grid-template-columns: 1fr;
-      grid-template-rows: minmax(0, 2fr) minmax(0, 3fr);
-    }
-    .field-view {
-      order: -1;
-    }
-  }
-  .box-view,
-  .field-view {
-    position: relative;
     min-height: 0;
     border: var(--border);
     border-radius: 22px;
     overflow: hidden;
-    background: #5dbb63;
+    background: #4fa656;
   }
   svg {
     display: block;
     width: 100%;
     height: 100%;
-  }
-  .field-view {
-    background: #7fb8e0;
   }
   .word {
     position: absolute;
@@ -480,6 +485,54 @@
       transform: translateX(-50%) scale(1);
     }
   }
+  .scorebox {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px 6px 8px;
+    background: #1a1a1a;
+    color: #fff;
+    border-radius: 16px;
+    border: 3px solid #fff;
+  }
+  .bases {
+    width: clamp(64px, 11vmin, 92px);
+    height: auto;
+  }
+  .runs {
+    display: grid;
+    justify-items: center;
+  }
+  .runs-label {
+    font-weight: 800;
+    font-size: 0.95rem;
+  }
+  .runs-num {
+    font-size: clamp(2rem, 6.5vmin, 3.4rem);
+    font-weight: 900;
+    line-height: 1;
+    color: #ffd400;
+    font-variant-numeric: tabular-nums;
+  }
+  .plus {
+    font-size: clamp(1.4rem, 4.5vmin, 2.2rem);
+    font-weight: 900;
+    color: #ffd400;
+    animation: pop-in 0.4s ease-out;
+  }
+  @keyframes pop-in {
+    0% {
+      transform: scale(0.3);
+      opacity: 0;
+    }
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
   .batter-tag {
     position: absolute;
     left: 10px;
@@ -495,36 +548,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .score {
-    position: absolute;
-    right: 10px;
-    bottom: 10px;
-    display: grid;
-    justify-items: center;
-    padding: 4px 16px 6px;
-    background: #1a1a1a;
-    color: #fff;
-    border-radius: 16px;
-    border: 3px solid #fff;
-  }
-  .score-label {
-    font-weight: 800;
-    font-size: 0.95rem;
-  }
-  .score-num {
-    font-size: clamp(2.2rem, 7vmin, 3.6rem);
-    font-weight: 900;
-    line-height: 1;
-    color: #ffd400;
-    font-variant-numeric: tabular-nums;
-  }
   .done {
     position: absolute;
     inset: 0;
     display: grid;
     place-items: center;
     background: rgba(255, 244, 222, 0.82);
-    border-radius: 22px;
     padding: 12px;
   }
   .done-card {

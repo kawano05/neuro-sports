@@ -28,8 +28,8 @@ export const HIT_NAMES = { 1: "hit", 2: "double", 3: "triple", 4: "homerun" };
 
 /** 打ってから、ボールが飛んでいる時間。 */
 export const FLIGHT_MS = 1700;
-/** 飛んだあと、ランナーが進むのを見せる時間。 */
-export const RUN_MS = 1500;
+/** 落ちたあと、どこへ飛んだかを見せておく時間（カメラが引いたまま。そのあと寄り直す）。 */
+export const RUN_MS = 1800;
 /** 交代して、次のボールが「あたる ところ」に初めて来るまでの、いちばん短い時間。 */
 export const FIRST_PASS_LEAD_MS = 2600;
 
