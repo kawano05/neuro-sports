@@ -258,6 +258,16 @@
   .rename {
     display: flex;
     gap: 8px;
+    align-items: center;
+  }
+  /* 入力欄が幅いっぱいになって、「きめる」が2行に押しつぶされていた。 */
+  .rename input {
+    flex: 1;
+    min-width: 0;
+  }
+  .rename .btn {
+    flex: none;
+    white-space: nowrap;
   }
   .rename-btn {
     justify-self: start;

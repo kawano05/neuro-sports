@@ -2,6 +2,7 @@
   // 支援者の設定。遊びの決まり（速さ・「合った」の広さなど）はホストだけが変えられ、
   // 全員に同じに効く。読み上げと音の大きさは、この端末だけ。
   // 開いているあいだは、スイッチの入力を受けない（キーボードで普通に操作するため）。
+  import { untrack } from "svelte";
   import { session, prefs, updatePrefs } from "../lib/app.js";
   import { rb } from "../lib/text.js";
 
@@ -9,7 +10,16 @@
 
   const state = $derived($session.state);
   const isHost = $derived($session.mode === "host" || $session.mode === "solo");
-  const game = $derived(state?.game || "baseball");
+  // タブ: 野球・ボッチャ・この端末（ホスト）。ゲストは この端末 だけ。
+  // 以前は、いま部屋で選んでいる遊びの設定しか出ず、ボッチャの設定が見つからなかった。
+  const TABS = [
+    ["baseball", "野球[やきゅう]"],
+    ["boccia", "ボッチャ"],
+    ["device", "この 端末[たんまつ]"],
+  ];
+  let tab = $state(
+    untrack(() => ($session.mode === "host" || $session.mode === "solo" ? $session.state?.game || "baseball" : "device"))
+  );
 
   const GROUPS = {
     baseball: [
@@ -44,11 +54,17 @@
     </header>
 
     {#if isHost && state}
-      <div class="tabs">
-        {#each ["baseball", "boccia"] as g}
-          <span class="tab" class:on={game === g}>{@html rb(g === "baseball" ? "野球[やきゅう]" : "ボッチャ")}</span>
+      <div class="tabs" role="tablist">
+        {#each TABS as [id, label]}
+          <button type="button" role="tab" class="tab" class:on={tab === id} aria-selected={tab === id} onclick={() => (tab = id)}>
+            {@html rb(label)}
+          </button>
         {/each}
       </div>
+    {/if}
+
+    {#if isHost && state && tab !== "device"}
+      {@const game = tab}
       {#each GROUPS[game].filter((g) => !g.when || g.when(state.settings[game])) as group}
         <fieldset>
           <legend>{@html rb(group.label)}</legend>
@@ -67,9 +83,7 @@
           </div>
         </fieldset>
       {/each}
-    {/if}
-
-    <h3>{@html rb("この 端末[たんまつ]")}</h3>
+    {:else}
     <fieldset>
       <legend>{@html rb("読[よ]み上[あ]げ")}</legend>
       <div class="seg">
@@ -90,6 +104,7 @@
         {/each}
       </div>
     </fieldset>
+    {/if}
   </div>
 </div>
 
@@ -118,30 +133,34 @@
     align-items: center;
     justify-content: space-between;
   }
-  h2,
-  h3 {
+  h2 {
     margin: 0;
     font-weight: 900;
   }
-  h3 {
-    margin-top: 6px;
-    padding-top: 12px;
-    border-top: 2px solid var(--rule);
-  }
   .tabs {
     display: flex;
-    gap: 8px;
+    gap: 4px;
+    border-bottom: 2px solid var(--rule);
   }
   .tab {
-    padding: 2px 2px 4px;
+    min-height: 48px;
+    padding: 4px 14px 2px;
+    background: none;
+    border: 0;
+    border-bottom: 4px solid transparent;
+    margin-bottom: -2px;
     font-weight: 800;
     font-size: 1.1rem;
-    opacity: 0.4;
-    border-bottom: 3px solid transparent;
+    color: var(--ink-soft);
+    cursor: pointer;
   }
   .tab.on {
-    opacity: 1;
+    color: var(--ink);
     border-bottom-color: var(--ink);
+  }
+  .tab:focus-visible {
+    outline: 3px solid var(--blue);
+    outline-offset: -3px;
   }
   fieldset {
     border: 0;
