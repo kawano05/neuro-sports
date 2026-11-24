@@ -22,6 +22,7 @@ import {
   placeJack,
 } from "../src/lib/games/boccia.js";
 import { createState, reduce, activePlayers, TURN_GUARD_MS } from "../src/lib/engine.js";
+import { rb, plain } from "../src/lib/text.js";
 
 let passed = 0;
 const failures = [];
@@ -287,6 +288,13 @@ test("ジャックは、どこに置かれても首振りの幅で狙える", ()
     const deg = (Math.atan2(jack.x - TURNTABLE.x, TURNTABLE.y - jack.y) * 180) / Math.PI;
     assert.ok(Math.abs(deg) <= AIM_MAX_DEG, `${deg.toFixed(1)}°`);
   }
+});
+
+test("ふりがなの文は1つの span にまとまる（横並びの中で漢字だけ下がらない）", () => {
+  const html = rb("部屋[へや]を つくる");
+  assert.equal(html, '<span class="rb"><ruby>部屋<rt aria-hidden="true">へや</rt></ruby>を つくる</span>');
+  assert.equal(plain("部屋[へや]を つくる"), "へやを つくる");
+  assert.ok(!rb("<b>").includes("<b>"));
 });
 
 for (const { name, error } of failures) {

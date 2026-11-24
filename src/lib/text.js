@@ -4,8 +4,13 @@
 const escapeHtml = (text) =>
   String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
+//
+// まとめて1つの span に入れる。ボタンなど横並び（flex）の中に、文字とルビをばらばらに
+// 置くと、それぞれが別の部品として上下の真ん中にそろえられ、ルビの付いた漢字だけ
+// 下にずれる（「部屋を つくる」で 5.5px）。1つの行の中に置けば、同じ字の並び（ベースライン）にそろう。
 export function rb(text) {
-  return escapeHtml(text).replace(/([^\s\[\]]+?)\[([^\]]+)\]/g, (_, base, reading) => `<ruby>${base}<rt aria-hidden="true">${reading}</rt></ruby>`);
+  const html = escapeHtml(text).replace(/([^\s\[\]]+?)\[([^\]]+)\]/g, (_, base, reading) => `<ruby>${base}<rt aria-hidden="true">${reading}</rt></ruby>`);
+  return `<span class="rb">${html}</span>`;
 }
 
 /** 読み上げ・aria-label 用。漢字のかわりに読みを使う。 */
