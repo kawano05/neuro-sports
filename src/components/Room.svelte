@@ -8,13 +8,15 @@
   import PressButton from "./PressButton.svelte";
   import GameIcon from "./GameIcon.svelte";
   import Icon from "./Icon.svelte";
+  import JoinRequests from "./JoinRequests.svelte";
 
   let { surface, onSettings } = $props();
 
   const state = $derived($session.state);
   const isHost = $derived($session.mode === "host" || $session.mode === "solo");
   const code = $derived(state.roomCode);
-  const link = $derived(code ? `${location.origin}${location.pathname}#room=${code}` : "");
+  // ホストが配るリンクには合言葉が付く（リンクから来た人は、許可を待たずに入れる）。
+  const link = $derived(code && $session.roomKey ? `${location.origin}${location.pathname}#room=${code}&key=${$session.roomKey}` : "");
   const canStart = $derived(activePlayers(state).length > 0);
 
   let copied = $state(false);
@@ -52,7 +54,9 @@
         <span class="code-label">{@html rb("部屋[へや]の 番号[ばんごう]")}</span>
         <span class="digits">{code}</span>
       </div>
-      <button class="btn small" type="button" onclick={copyLink}>{@html rb(copied ? "コピーしました" : "リンクを コピー")}</button>
+      {#if isHost && link}
+        <button class="btn small" type="button" onclick={copyLink}>{@html rb(copied ? "コピーしました" : "リンクを コピー")}</button>
+      {/if}
     {:else}
       <div class="code solo">{@html rb("ひとりで あそぶ")}</div>
     {/if}
@@ -60,6 +64,10 @@
       <button class="btn small icon" type="button" onclick={onSettings} aria-label="せってい"><Icon name="gear" /></button>
     {/if}
   </header>
+
+  {#if isHost}
+    <JoinRequests />
+  {/if}
 
   {#if $session.status === "closed"}
     <div class="notice" role="alert">

@@ -52,3 +52,26 @@ export function clientId() {
   }
   return memoryId;
 }
+
+const TOKEN_KEY = (code) => `neuro-sports.token.${code}`;
+
+/**
+ * 入り直しの札（ホストが渡す秘密の文字列）。部屋ごとに、このタブにだけ覚えておく。
+ * id はほかの人にも見えるので、id では入り直せない（なりすましを防ぐ）。
+ */
+export function loadRoomToken(code) {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY(code)) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveRoomToken(code, token) {
+  try {
+    if (token) sessionStorage.setItem(TOKEN_KEY(code), token);
+    else sessionStorage.removeItem(TOKEN_KEY(code));
+  } catch {
+    /* 保存できない環境 */
+  }
+}

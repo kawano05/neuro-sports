@@ -6,27 +6,47 @@
 // やりとり（ゲームの状態・だれが押したか）は、ブラウザどうしで直接（暗号化されて）流れる。
 // 直接つながらないネットワークでは、PeerJS の中継（TURN）を通る。
 //
-// 部屋の番号は4けた。PeerJS の id は PREFIX + 番号。ほかのアプリとぶつからないよう、
+// 部屋の番号は6けた。PeerJS の id は PREFIX + 番号。ほかのアプリとぶつからないよう、
 // このアプリだけの前置きを付ける。
+//
+// 番号は総当たりで見つけられる（前置きは公開のコードに書いてある）。なので番号だけでは
+// 入れない: 番号を打って来た人は、ホストが「入れる」を押すまで待つ（session.js）。
+// ホストが配るリンクには、推測できない合言葉（key）が付いていて、リンクから来た人はそのまま入れる。
 // =====================================================================
 
-export const PEER_PREFIX = "neuro-sports-v1-";
+export const PEER_PREFIX = "neuro-sports-v2-";
+export const CODE_DIGITS = 6;
 const OPEN_TIMEOUT_MS = 15000;
 
 export function roomPeerId(code) {
   return `${PEER_PREFIX}${code}`;
 }
 
-export function makeRoomCode(rng = Math.random) {
-  return String(1000 + Math.floor(rng() * 9000));
+/** 0 以上 max 未満の、推測できない整数（crypto）。 */
+function secureInt(max) {
+  const buf = new Uint32Array(1);
+  const limit = Math.floor(0x100000000 / max) * max;
+  do crypto.getRandomValues(buf);
+  while (buf[0] >= limit);
+  return buf[0] % max;
 }
 
-/** 入力された番号から、数字4けただけを取り出す（全角も受ける）。 */
+export function makeRoomCode() {
+  return String(10 ** (CODE_DIGITS - 1) + secureInt(9 * 10 ** (CODE_DIGITS - 1)));
+}
+
+/** 推測できない文字列（合言葉・入り直しの札）。読み間違えやすい字は使わない。 */
+export function randomToken(length = 16) {
+  const abc = "abcdefghjkmnpqrstuvwxyz23456789";
+  return Array.from({ length }, () => abc[secureInt(abc.length)]).join("");
+}
+
+/** 入力された番号から、数字6けただけを取り出す（全角も受ける）。 */
 export function normalizeCode(text) {
   const digits = String(text || "")
     .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
     .replace(/\D/g, "");
-  return digits.length === 4 ? digits : null;
+  return digits.length === CODE_DIGITS ? digits : null;
 }
 
 async function loadPeer() {

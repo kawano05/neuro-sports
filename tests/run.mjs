@@ -26,6 +26,7 @@ import {
 } from "../src/lib/games/boccia.js";
 import { createState, reduce, activePlayers, TURN_GUARD_MS, MAX_PLAYING, MAX_IN_ROOM, PLAYER_COLORS, WATCH_COLOR, roomHasSpace } from "../src/lib/engine.js";
 import { rb, plain } from "../src/lib/text.js";
+import { makeRoomCode, normalizeCode, randomToken } from "../src/lib/net.js";
 
 let passed = 0;
 const failures = [];
@@ -395,6 +396,29 @@ test("部屋は20人まで。入り直しの人は入れる", () => {
   assert.equal(roomHasSpace(s, "new"), false);
   assert.equal(reduce(s, { type: "join", player: { id: "new", name: "new" } }, 99), s);
   assert.equal(roomHasSpace(s, "p3"), true);
+});
+
+test("部屋の番号は6けた、札は推測できない文字列", () => {
+  for (let i = 0; i < 200; i += 1) assert.match(makeRoomCode(), /^[1-9][0-9]{5}$/);
+  assert.equal(normalizeCode("１２３４５６"), "123456");
+  assert.equal(normalizeCode("1234"), null);
+  const t = randomToken(20);
+  assert.match(t, /^[a-z2-9]{20}$/);
+  assert.notEqual(randomToken(20), t);
+});
+
+test("ホストが外した人は、名前の列から消え、二度と入れない", () => {
+  let s = room(["a", "b"]);
+  s = reduce(s, { type: "settings", game: "baseball", key: "outs", value: false }, 0);
+  s = reduce(s, { type: "start", game: "baseball" }, 0);
+  s = reduce(s, { type: "setTurn", id: "b" }, 10);
+  s = reduce(s, { type: "remove", id: "b" }, 20);
+  const b = s.players.find((p) => p.id === "b");
+  assert.equal(b.removed, true);
+  assert.equal(s.turn.playerId, "a");
+  assert.equal(reduce(s, { type: "join", player: { id: "b", name: "b" } }, 30), s);
+  // ホスト自身は外せない。
+  assert.equal(reduce(s, { type: "remove", id: "a" }, 40), s);
 });
 
 for (const { name, error } of failures) {

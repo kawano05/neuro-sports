@@ -46,6 +46,20 @@
     })
   );
 
+  // 外すのは2回押し（1回目で「はずす？」、もう1回で外す）。まちがえて外さないように。
+  let confirmRemove = $state(null);
+  function removeClick(player) {
+    if (confirmRemove === player.id) {
+      confirmRemove = null;
+      session.removePlayer(player.id);
+      return;
+    }
+    confirmRemove = player.id;
+    setTimeout(() => {
+      if (confirmRemove === player.id) confirmRemove = null;
+    }, 3000);
+  }
+
   function makeTurn(player) {
     if (!isHost || state.screen !== "game" || !player.connected) return;
     session.act({ type: "setTurn", id: player.id });
@@ -53,7 +67,7 @@
 </script>
 
 <ul class="players" class:compact>
-  {#each state.players as player (player.id)}
+  {#each state.players.filter((p) => !p.removed) as player (player.id)}
     {@const turn = state.turn?.playerId === player.id}
     {@const pulse = pulses[player.id]}
     <li
@@ -86,6 +100,17 @@
 
       {#if !compact}
         <div class="controls">
+          {#if isHost && player.id !== myId}
+            <button
+              class="btn small remove"
+              class:confirm={confirmRemove === player.id}
+              type="button"
+              aria-label={`${player.name}を へやから はずす`}
+              onclick={() => removeClick(player)}
+            >
+              {@html rb(confirmRemove === player.id ? "はずす？" : "×")}
+            </button>
+          {/if}
           {#if isHost || player.id === myId}
             <button
               class="btn small"
@@ -220,6 +245,15 @@
   .team.blue {
     background: var(--blue);
     border-color: var(--blue);
+    color: #fff;
+  }
+  .remove {
+    min-width: 44px;
+    color: var(--ink-soft);
+  }
+  .remove.confirm {
+    background: var(--danger);
+    border-color: var(--danger);
     color: #fff;
   }
   .slots {

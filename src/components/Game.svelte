@@ -10,6 +10,7 @@
   import Boccia from "./Boccia.svelte";
   import PlayerMark from "./PlayerMark.svelte";
   import Icon from "./Icon.svelte";
+  import JoinRequests from "./JoinRequests.svelte";
 
   let { surface, onSettings } = $props();
 
@@ -52,6 +53,10 @@
     </div>
   </header>
 
+  {#if isHost && $session.pending.length}
+    <div class="requests"><JoinRequests /></div>
+  {/if}
+
   {#if $session.status === "closed"}
     <div class="notice" role="alert">
       {@html rb("ホストとの つながりが きれました")}
@@ -89,7 +94,8 @@
   .top {
     grid-area: top;
   }
-  .notice {
+  .notice,
+  .requests {
     grid-area: notice;
   }
   .stage {

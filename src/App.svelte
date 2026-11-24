@@ -11,7 +11,10 @@
 
   let settingsOpen = $state(false);
   const screen = $derived($session.state ? $session.state.screen : "home");
-  const initialCode = normalizeCode(new URLSearchParams(location.hash.slice(1)).get("room"));
+  const hashParams = new URLSearchParams(location.hash.slice(1));
+  const initialCode = normalizeCode(hashParams.get("room"));
+  // リンクの合言葉（ホストが配ったリンクから来た人は、許可を待たずに入れる）。
+  const initialKey = (hashParams.get("key") || "").replace(/[^a-z0-9]/g, "").slice(0, 40) || null;
 
   const input = createSwitchInput({
     accepting: () => !settingsOpen && !!get(session).state,
@@ -84,7 +87,7 @@
 
 <div class="app" data-screen={screen}>
   {#if screen === "home"}
-    <Home {initialCode} />
+    <Home {initialCode} {initialKey} />
   {:else if screen === "room"}
     <Room surface={input.surface} onSettings={() => (settingsOpen = true)} />
   {:else}

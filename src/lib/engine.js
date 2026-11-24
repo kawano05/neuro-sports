@@ -167,6 +167,7 @@ function apply(s, action, now, rng) {
     case "join": {
       const incoming = action.player;
       const existing = playerById(s, incoming.id);
+      if (existing?.removed) return false;
       if (!existing && !roomHasSpace(s, incoming.id)) return false;
       const wantsPlay = incoming.role !== "watch";
       const canPlay = playingCount(s, incoming.id) < MAX_PLAYING;
@@ -195,6 +196,17 @@ function apply(s, action, now, rng) {
       if (wantsPlay && !canPlay && (incoming.role || !existing)) pushEvent(s, now, { kind: "full", playerId: incoming.id });
       // 遊んでいる途中で、だれの番でもなければ、この人の番にする。
       if (s.screen === "game" && !s.turn) startTurnFor(s, now, rng);
+      return true;
+    }
+    case "remove": {
+      // ホストが部屋から外した人。名前の列から消え、二度と入れない（session.js が札も消す）。
+      const player = playerById(s, action.id);
+      if (!player || player.host || player.removed) return false;
+      player.removed = true;
+      player.connected = false;
+      player.role = "watch";
+      fitColor(s, player);
+      if (s.turn?.playerId === action.id && s.screen === "game") passTurn(s, now, rng);
       return true;
     }
     case "leave": {
