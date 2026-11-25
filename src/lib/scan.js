@@ -13,8 +13,10 @@
 // - ボタンはタップでも、そのまま押せる。
 // - 選んでも画面が変わらないボタン（部屋の「野球」など）は、data-scan-then に次に光らせる
 //   ボタン（入れ物の中のセレクタ）を書く。選んだら、すぐそこへ光を移す（野球 → はじめる）。
-// - 文字を打つ欄（名前・番号）に入っているあいだは、光を止める（支援者が打っているときに、
-//   読み上げで じゃまをしない）。押せないボタン（つないでいる最中など）は飛ばす。
+// - 文字を打つ欄（名前・番号）に入っているあいだと、設定の画面が開いているあいだは、光を止める
+//   （支援者が操作しているときに、読み上げで じゃまをしない）。押せないボタン（つないでいる最中など）は飛ばす。
+// - ほかの読み上げ（「おわり。あかの かち」・「◯さんが はいった」など）の最中は、ボタンの言葉を読まない
+//   （読み上げは前のものを切ってしまうので、大事な知らせを消さないように）。
 // =====================================================================
 
 import { writable, get } from "svelte/store";
@@ -29,8 +31,9 @@ export const scanning = writable(false);
 
 const groups = [];
 
-/** いま文字を打つ欄に入っているか。 */
-function typing() {
+/** いま支援者が操作しているか（文字を打つ欄に入っている・設定の画面が開いている）。 */
+function busy() {
+  if (document.querySelector('[aria-modal="true"]')) return true;
   const el = document.activeElement;
   const tag = el?.tagName?.toLowerCase();
   return tag === "input" || tag === "textarea" || tag === "select" || !!el?.isContentEditable;
@@ -63,14 +66,14 @@ export function scanGroup(node, enabled = true) {
     if (!list.length) return;
     index = ((next % list.length) + list.length) % list.length;
     list.forEach((b, k) => b.classList.toggle("scan-focus", k === index));
-    if (speak) audio.speak(labelOf(list[index]));
+    if (speak && !globalThis.speechSynthesis?.speaking) audio.speak(labelOf(list[index]));
   }
 
   function schedule() {
     clearTimeout(timer);
     const ms = SCAN_MS_OPTIONS.includes(get(prefs).scanMs) ? get(prefs).scanMs : DEFAULT_SCAN_MS;
     timer = setTimeout(() => {
-      if (!typing()) show(index + 1, true);
+      if (!busy()) show(index + 1, true);
       schedule();
     }, ms);
   }
@@ -128,6 +131,6 @@ export function scanGroup(node, enabled = true) {
  * @param {number} t performance.now()
  */
 export function scanSelect(t) {
-  const group = groups.at(-1);
+  const group = groups[groups.length - 1];
   return group ? group.select(t) : false;
 }

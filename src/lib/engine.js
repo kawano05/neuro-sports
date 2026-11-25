@@ -281,7 +281,12 @@ function apply(s, action, now, rng) {
     case "setTurn": {
       const player = playerById(s, action.id);
       if (s.screen !== "game" || !player || !player.connected) return false;
-      if (player.role !== "play") player.role = "play";
+      if (player.role !== "play") {
+        // 見るだけの人に番を渡すと、あそぶ人になる（8人まで。色も あそぶ人の色に）。
+        if (playingCount(s, player.id) >= MAX_PLAYING) return false;
+        player.role = "play";
+        fitColor(s, player);
+      }
       beginTurn(s, now, player.id);
       return true;
     }
@@ -691,7 +696,8 @@ function startEnd(s, now, rng) {
   bc.roll = null;
   bc.result = null;
   bc.nextAt = null;
-  bc.current = { team: nextTeam([], bc.jack, bc.left, bc.teams), ballId: null };
+  // 先に投げるチームは、エンドごとに入れかえる（本物のボッチャと同じ。1エンド目は赤）。
+  bc.current = { team: bc.teams[(Math.max(1, bc.endNo) - 1) % bc.teams.length], ballId: null };
   prepareThrow(s, now);
 }
 

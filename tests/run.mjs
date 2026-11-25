@@ -27,7 +27,7 @@ import {
   TURNTABLE,
   placeJack,
 } from "../src/lib/games/boccia.js";
-import { createState, reduce, activePlayers, TURN_GUARD_MS, MAX_PLAYING, MAX_IN_ROOM, PLAYER_COLORS, WATCH_COLOR, roomHasSpace } from "../src/lib/engine.js";
+import { createState, reduce, activePlayers, playerById, TURN_GUARD_MS, MAX_PLAYING, MAX_IN_ROOM, PLAYER_COLORS, WATCH_COLOR, roomHasSpace } from "../src/lib/engine.js";
 import { rb, plain } from "../src/lib/text.js";
 import { makeRoomCode, normalizeCode, randomToken } from "../src/lib/net.js";
 import { sha256, hmac, sdpFingerprints, proof, same, tokenId } from "../src/lib/handshake.js";
@@ -469,6 +469,47 @@ test("ボッチャ: ひとりなら1チームで、全部投げたら おわり�
   assert.ok(s.boccia.result);
 });
 
+test("ボッチャ: 先に投げるチームは、エンドごとに入れかわる（本物の決まり）", () => {
+  let s = room(["a", "b"]);
+  s = reduce(s, { type: "settings", game: "boccia", key: "presses", value: 1 }, 0);
+  s = reduce(s, { type: "settings", game: "boccia", key: "balls", value: 1 }, 0);
+  s = reduce(s, { type: "start", game: "boccia" }, 0);
+  assert.equal(s.boccia.current.team, "red");
+  let now = 0;
+  while (s.boccia.phase !== "end") {
+    now += TURN_GUARD_MS + 300;
+    s = reduce(s, { type: "press", playerId: s.turn.playerId, t: now }, now);
+    now = s.boccia.nextAt;
+    s = reduce(s, { type: "tick" }, now);
+  }
+  s = reduce(s, { type: "nextEnd" }, now + 10);
+  assert.equal(s.boccia.endNo, 2);
+  assert.equal(s.boccia.current.team, "blue");
+  assert.equal(s.turn.playerId, "b");
+});
+
+test("ボッチャ: いちばん近い玉どうしが同じ近さなら、どちらの勝ちにもしない", () => {
+  const jack = { x: 0, y: 0 };
+  const r = scoreEnd([{ id: "r", team: "red", x: 50, y: 0 }, { id: "b", team: "blue", x: -50, y: 0 }], jack);
+  assert.equal(r.team, null);
+  assert.equal(r.points, 0);
+});
+
+test("見るだけの人に番を渡すと、あそぶ人の色になる。8人いっぱいなら渡せない", () => {
+  let s = room(["a", "w"]);
+  s = reduce(s, { type: "setRole", id: "w", role: "watch" }, 1);
+  assert.equal(playerById(s, "w").color, WATCH_COLOR);
+  s = reduce(s, { type: "start", game: "baseball" }, 2);
+  s = reduce(s, { type: "setTurn", id: "w" }, 3);
+  assert.equal(s.turn.playerId, "w");
+  assert.equal(playerById(s, "w").role, "play");
+  assert.notEqual(playerById(s, "w").color, WATCH_COLOR);
+  let full = room(["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "x"]);
+  assert.equal(playerById(full, "x").role, "watch");
+  full = reduce(full, { type: "start", game: "baseball" }, 2);
+  assert.equal(reduce(full, { type: "setTurn", id: "x" }, 3), full);
+});
+
 test("待っている部屋で押すと「スイッチの ためし」が全員に出る", () => {
   let s = room(["a", "b"]);
   s = reduce(s, { type: "press", playerId: "b", t: 5 }, 5);
@@ -792,6 +833,47 @@ testAsync("にせのホストが本物へ横流ししても、指紋が合わず
   assert.equal(get(h).pending.length, 1);
   assert.equal(get(h).state.players.length, 1);
   assert.equal(JSON.stringify(relay.seen).includes(key), false);
+  g.leave();
+  h.leave();
+});
+
+testAsync("許可を待てるのは8人まで。9人目には「いま おおい」と返す", async () => {
+  const real = hostEndpoint();
+  const h = createSession({ transport: real.transport });
+  await h.host(me("ほすと"));
+  const guests = [];
+  for (let i = 0; i < 9; i += 1) {
+    sessionStorage.removeItem("neuro-sports.token.123456");
+    const g = createSession({ transport: guestTransport(() => real, `fp-p${i}`) });
+    await g.join("123456", me(`p${i}`));
+    await settle();
+    guests.push(g);
+  }
+  assert.equal(get(h).pending.length, 8);
+  assert.equal(get(guests[8]).status, "error");
+  assert.match(get(guests[8]).error, /おおい/);
+  guests.forEach((g) => g.leave());
+  h.leave();
+});
+
+testAsync("押しの連打は数えない。時計が合う前の押しは、時刻を送らない", async () => {
+  const real = hostEndpoint();
+  const h = createSession({ transport: real.transport });
+  await h.host(me("ほすと"));
+  const key = get(h).roomKey;
+  const sent = [];
+  const tap = () => ({ connect: (hd, o) => { const c = real.connect(hd, o); return { ...c, send: (m) => (sent.push(clone(m)), c.send(m)) }; } });
+  const g = createSession({ transport: guestTransport(tap, "fp-r") });
+  await g.join("123456", me("れん"), key);
+  g.press(performance.now());
+  assert.equal(sent.find((m) => m.type === "press").t, undefined);
+  await settle();
+  const before = get(h).state.eventSeq;
+  for (let i = 0; i < 5; i += 1) g.press(performance.now());
+  await settle();
+  const tests = get(h).state.events.filter((e) => e.id > before && e.kind === "test");
+  assert.equal(tests.length, 1);
+  assert.equal(typeof sent.filter((m) => m.type === "press").at(-1).t, "number");
   g.leave();
   h.leave();
 });

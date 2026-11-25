@@ -84,6 +84,7 @@
 
 <style>
   .game {
+    height: 100vh;
     height: 100dvh;
     display: grid;
     grid-template-columns: minmax(0, 1fr);

@@ -235,7 +235,9 @@ export function scoreEnd(balls, jack, teams = TEAMS) {
   if (teams.length < 2) return { team: winner, points: 0, closest: [inPlay[0]] };
   const rivalBest = inPlay.find((b) => b.team !== winner);
   const limit = rivalBest ? rivalBest.d : Infinity;
-  // 同じ距離（同点）は、点にしない。
+  // いちばん近い玉どうしが同じ近さなら、どちらの勝ちにもしない（点も無し）。
+  // （本物は、同じ近さの玉1つにつき両方に1点。画面の位置は 0.1 きざみなので、まず起きない）
+  if (limit === inPlay[0].d) return { team: null, points: 0, closest: [] };
   const closest = inPlay.filter((b) => b.team === winner && b.d < limit);
   return { team: winner, points: closest.length, closest };
 }

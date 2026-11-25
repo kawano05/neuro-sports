@@ -108,6 +108,7 @@
     text-align: center;
   }
   .home {
+    min-height: 100vh;
     min-height: 100dvh;
     display: grid;
     align-content: center;

@@ -132,6 +132,7 @@
 
 <style>
   .room {
+    min-height: 100vh;
     min-height: 100dvh;
     display: grid;
     grid-template-rows: auto auto 1fr auto;

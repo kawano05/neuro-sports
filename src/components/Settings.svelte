@@ -138,6 +138,7 @@
   }
   .panel {
     width: min(640px, 100%);
+    max-height: calc(100vh - 32px);
     max-height: calc(100dvh - 32px);
     overflow: auto;
     background: var(--paper);

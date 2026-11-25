@@ -37,6 +37,10 @@ const CLOCK_SAMPLES = 12;
 const GUEST_SILENT_MS = 16000;
 /** つないでから、あいさつ（hello → prove → join）を終えるまでの時間。過ぎたら切る。 */
 const HANDSHAKE_MS = 10000;
+/** 許可を待てる人の数（番号の総当たりで、ホストの画面が「入りたい」で埋まらないように）。 */
+const MAX_PENDING = 8;
+/** 同じ人の押しは、これより短い間では数えない（押しの連打で、全員への配りがあふれないように）。 */
+const PRESS_MIN_GAP_MS = 80;
 
 /**
  * @param {{ transport?: { hostRoom: Function, joinRoom: Function } }} [options]
@@ -79,6 +83,8 @@ export function createSession({ transport = realNet } = {}) {
   const removed = new Set();
   // ホスト: あいさつの途中の接続 → { at: つないだ時刻, hs?: { ctx, token } }。
   const greeting = new Map();
+  // ホスト: 接続ごとの、最後に押しを受けた時刻。
+  const lastPress = new Map();
   let roomKey = null;
   // ゲスト: あいさつの途中のこと（ゲストの乱数・合言葉・札・送ったか）。
   let guestHs = null;
@@ -152,6 +158,7 @@ export function createSession({ transport = realNet } = {}) {
         onClose(conn) {
           if (pending.delete(conn)) syncPending();
           greeting.delete(conn);
+          lastPress.delete(conn);
           const id = connPlayer.get(conn);
           connPlayer.delete(conn);
           lastSeen.delete(conn);
@@ -248,7 +255,12 @@ export function createSession({ transport = realNet } = {}) {
           admit(conn, { name, role });
           return;
         }
-        // 番号だけで来た人は、ホストの許可を待つ。
+        // 番号だけで来た人は、ホストの許可を待つ（待てる人数には上限がある）。
+        if (pending.size >= MAX_PENDING) {
+          net.send(conn, { type: "reject", reason: "busy" });
+          setTimeout(() => net?.drop(conn), 500);
+          return;
+        }
         pending.set(conn, { key: randomToken(8), name: name || "なまえなし", role });
         syncPending();
         net.send(conn, { type: "wait" });
@@ -257,9 +269,16 @@ export function createSession({ transport = realNet } = {}) {
       case "ping":
         net.send(conn, { type: "pong", c: msg.c, h: performance.now() });
         return;
-      case "press":
-        if (id) dispatch({ type: "press", playerId: id, t: Number(msg.t), pid: String(msg.pid || "").slice(0, 24) });
+      case "press": {
+        if (!id) return;
+        const at = performance.now();
+        if (at - (lastPress.get(conn) ?? -Infinity) < PRESS_MIN_GAP_MS) return;
+        lastPress.set(conn, at);
+        // 時計がまだ合っていないゲストは t を送らない（そのときは、届いた時刻で数える）。
+        const t = msg.t === undefined || msg.t === null ? undefined : Number(msg.t);
+        dispatch({ type: "press", playerId: id, t, pid: String(msg.pid || "").slice(0, 24) });
         return;
+      }
       case "rename":
         if (id) dispatch({ type: "rename", id, name: msg.name });
         return;
@@ -442,11 +461,11 @@ export function createSession({ transport = realNet } = {}) {
         store.update((v) => ({ ...v, status: "open", myId: String(msg.id || v.myId) }));
         // 入る前の出来事は鳴らさない。
         lastEventId = msg.state?.eventSeq ?? 0;
-        if (msg.state) setState(msg.state, { silent: true });
+        if (msg.state && typeof msg.state === "object") setState(msg.state, { silent: true });
         return;
       case "state":
-        // 入る前（welcome より前）の状態は受けない。
-        if (!state) return;
+        // 入る前（welcome より前）の状態と、形のおかしいものは受けない。
+        if (!state || !msg.state || typeof msg.state !== "object") return;
         if (msg.state.seq >= state.seq || msg.state.roomCode !== state.roomCode) setState(msg.state);
         return;
       case "pong":
@@ -463,7 +482,9 @@ export function createSession({ transport = realNet } = {}) {
                 ? "ホストが へやに いれませんでした"
                 : msg.reason === "removed"
                   ? "へやから はずされました"
-                  : "へやに はいれませんでした",
+                  : msg.reason === "busy"
+                    ? "いま はいりたい人が おおいです。すこし まってから はいってね"
+                    : "へやに はいれませんでした",
         }));
         // 札を捨てるのは、この線で入れてもらったあとだけ（入る前の「外した」は、にせかもしれない）。
         if (msg.reason === "removed" && state) saveRoomToken(current.code, null);
@@ -491,7 +512,8 @@ export function createSession({ transport = realNet } = {}) {
     const pid = `${current.myId.slice(0, 6)}-${pressSeq}`;
     prepare?.({ pid, t });
     if (isHostLike()) dispatch({ type: "press", playerId: current.myId, t, pid });
-    else net?.send({ type: "press", t, pid });
+    // 時計がまだ合っていない（ping の返事が1つも無い）うちは、時刻を送らない。
+    else net?.send({ type: "press", t: clock.length ? t : undefined, pid });
     return { pid, t };
   }
 
@@ -534,6 +556,7 @@ export function createSession({ transport = realNet } = {}) {
     pending.clear();
     removed.clear();
     greeting.clear();
+    lastPress.clear();
     guestHs = null;
     roomKey = null;
     store.update((v) => ({ ...v, mode: null, status: "idle", state: null, code: null, error: null, trouble: null, roomKey: null, pending: [], hostChecked: null }));
