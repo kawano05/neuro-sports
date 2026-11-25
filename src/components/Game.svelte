@@ -11,6 +11,7 @@
   import PlayerMark from "./PlayerMark.svelte";
   import Icon from "./Icon.svelte";
   import JoinRequests from "./JoinRequests.svelte";
+  import { scanning } from "../lib/scan.js";
 
   let { surface, onSettings } = $props();
 
@@ -77,7 +78,7 @@
   </aside>
 
   <footer class="press-area">
-    <PressButton {surface} mode={myTurn ? "turn" : "cheer"} />
+    <PressButton {surface} mode={$scanning ? "choose" : myTurn ? "turn" : "cheer"} />
   </footer>
 </main>
 

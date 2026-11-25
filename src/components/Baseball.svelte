@@ -41,6 +41,7 @@
     offsetFromSweet,
   } from "../lib/games/baseball.js";
   import { rb, HIT_LABELS, TEAM_LABELS } from "../lib/text.js";
+  import { scanGroup } from "../lib/scan.js";
   import PlayerMark from "./PlayerMark.svelte";
 
   let { onAgain, onBack } = $props();
@@ -542,7 +543,7 @@
           {/each}
         </ul>
         {#if isHost}
-          <div class="done-actions">
+          <div class="done-actions" use:scanGroup>
             <button class="btn primary big" type="button" onclick={onAgain}>{@html rb("もういちど")}</button>
             <button class="btn big" type="button" onclick={onBack}>{@html rb("部屋[へや]に もどる")}</button>
           </div>

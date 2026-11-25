@@ -11,6 +11,7 @@
     turn: "おす",
     cheer: "おうえん",
     test: "おして ためす",
+    choose: "えらぶ",
   };
 
   let pressedAt = $state(0);
@@ -49,7 +50,8 @@
     -webkit-user-select: none;
     transition: transform 0.06s ease, box-shadow 0.06s ease, background 0.2s ease;
   }
-  .press.turn {
+  .press.turn,
+  .press.choose {
     background: var(--turn);
   }
   /* 番でないとき（おうえん・ためす）は白。黄色は「いま押せる」だけ。 */

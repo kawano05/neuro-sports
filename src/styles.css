@@ -105,6 +105,15 @@ select:focus-visible {
   outline-offset: 3px;
 }
 
+/* 選ぶ画面で、いま光っているボタン（スイッチで押すと、これを押す。lib/scan.js） */
+.btn.scan-focus {
+  outline: 7px solid #ffd84d;
+  outline-offset: 4px;
+  box-shadow: 0 0 0 14px rgba(255, 216, 77, 0.35);
+  transform: scale(1.06);
+  transition: transform 0.12s ease;
+}
+
 .btn.primary {
   background: var(--ink);
   border-color: var(--ink);

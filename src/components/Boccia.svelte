@@ -25,6 +25,7 @@
     restingPoint,
   } from "../lib/games/boccia.js";
   import { rb, TEAM_LABELS } from "../lib/text.js";
+  import { scanGroup } from "../lib/scan.js";
   import PlayerMark from "./PlayerMark.svelte";
 
   let { onNextEnd, onBack } = $props();
@@ -334,7 +335,7 @@
           <p class="end-title">{@html rb("どちらも 0てん")}</p>
         {/if}
         {#if isHost}
-          <div class="end-actions">
+          <div class="end-actions" use:scanGroup>
             <button class="btn primary big" type="button" onclick={onNextEnd}>{@html rb("つぎの エンド")}</button>
             <button class="btn" type="button" onclick={onBack}>{@html rb("部屋[へや]に もどる")}</button>
           </div>

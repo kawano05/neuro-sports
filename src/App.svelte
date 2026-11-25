@@ -3,6 +3,7 @@
   import { get } from "svelte/store";
   import { session, audio, bus, announcement, predicted } from "./lib/app.js";
   import { createSwitchInput } from "./lib/input.js";
+  import { scanSelect } from "./lib/scan.js";
   import { normalizeCode } from "./lib/net.js";
   import Home from "./components/Home.svelte";
   import Room from "./components/Room.svelte";
@@ -20,6 +21,8 @@
     accepting: () => !settingsOpen && !!get(session).state,
     onPress(t) {
       audio.unlock();
+      // 選ぶ画面（試合のおわり など）では、光っているボタンを押す（lib/scan.js）。
+      if (scanSelect(t)) return;
       const s = get(session);
       const st = s.state;
       session.press(t, (press) => {

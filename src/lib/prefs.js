@@ -9,6 +9,7 @@ export const DEFAULT_PREFS = Object.freeze({
   role: "play",
   speech: true,
   volume: "mid", // small | mid | large
+  scanMs: 1600, // 選ぶ画面で、ボタンの光が移る間（lib/scan.js）
   settings: null,
 });
 

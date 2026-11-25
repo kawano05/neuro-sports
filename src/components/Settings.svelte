@@ -112,6 +112,16 @@
         {/each}
       </div>
     </fieldset>
+    <fieldset>
+      <legend>{@html rb("えらぶ 光[ひかり]の はやさ（試合[しあい]の おわりなど）")}</legend>
+      <div class="seg">
+        {#each [[1200, "はやい（1.2秒[びょう]）"], [1600, "ふつう（1.6秒[びょう]）"], [2400, "ゆっくり（2.4秒[びょう]）"], [3200, "とても ゆっくり（3.2秒[びょう]）"]] as [value, label]}
+          <button type="button" class="opt" class:on={$prefs.scanMs === value} aria-pressed={$prefs.scanMs === value} onclick={() => updatePrefs({ scanMs: value })}>
+            {@html rb(label)}
+          </button>
+        {/each}
+      </div>
+    </fieldset>
     {/if}
   </div>
 </div>
