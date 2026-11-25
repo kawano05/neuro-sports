@@ -221,9 +221,12 @@ export function simulateHit(offset, window, rng = Math.random) {
   const carry = reach * (CARRY_BASE + CARRY_Q * q);
   const loft = carry * (LOFT_BASE + LOFT_Q * q);
   const arcs = [{ from: 0, to: carry, h: loft }];
+  // はねるのは、止まる少し前まで（空中で止まって見えないように、はね方を縮める）。
+  const bounceLen = BOUNCES.reduce((sum, b) => sum + b.len, 0) * carry;
+  const fit = Math.min(1, Math.max(0, reach * 0.95 - carry) / bounceLen);
   for (const b of BOUNCES) {
     const from = arcs[arcs.length - 1].to;
-    arcs.push({ from, to: from + carry * b.len, h: loft * b.h });
+    arcs.push({ from, to: from + carry * b.len * fit, h: loft * b.h * fit });
   }
 
   let v = Math.sqrt(2 * DECEL * reach);
@@ -294,8 +297,8 @@ export function simulateHit(offset, window, rng = Math.random) {
     where = { kind: "stop" };
     n = OUT;
   }
-  if (where.kind === "wall" && z > 0) {
-    // 空中でフェンスに当たった: その場で下に落ちる。
+  if (where.kind !== "over" && z > 0) {
+    // 空中でフェンスに当たった（など）: その場で下に落ちる。
     const top = z;
     for (let i = 1; i <= 6; i += 1) {
       z = top * (1 - (i / 6) ** 2);

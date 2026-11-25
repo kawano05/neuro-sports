@@ -84,6 +84,15 @@ test("打ったボールは飛んで、落ちて、転がる（コマに高さ�
   assert.ok(r.landMs > 0 && r.landMs < r.durationMs);
 });
 
+test("どの当たりも、おわりは地面（空中で止まって見えない）", () => {
+  let seed = 21;
+  const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 3000; i += 1) {
+    const r = simulateHit((rng() * 2 - 1) * 600, 600, rng);
+    assert.equal(r.frames.at(-1)[2], 0, `${i}: ${r.where.kind}`);
+  }
+});
+
 test("飛んでいる間は、穴に落ちない（センターの穴を飛びこえる）", () => {
   // ばらつき無しで真ん中: センターの穴（本塁から 470）の上を通る。
   const r = simulateHit(0, 600, zero);
