@@ -13,6 +13,8 @@
 // - ボタンはタップでも、そのまま押せる。
 // - 選んでも画面が変わらないボタン（部屋の「野球」など）は、data-scan-then に次に光らせる
 //   ボタン（入れ物の中のセレクタ）を書く。選んだら、すぐそこへ光を移す（野球 → はじめる）。
+// - 文字を打つ欄（名前・番号）に入っているあいだは、光を止める（支援者が打っているときに、
+//   読み上げで じゃまをしない）。押せないボタン（つないでいる最中など）は飛ばす。
 // =====================================================================
 
 import { writable, get } from "svelte/store";
@@ -26,6 +28,13 @@ const GUARD_MS = 700;
 export const scanning = writable(false);
 
 const groups = [];
+
+/** いま文字を打つ欄に入っているか。 */
+function typing() {
+  const el = document.activeElement;
+  const tag = el?.tagName?.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || !!el?.isContentEditable;
+}
 
 function labelOf(button) {
   const label = button.getAttribute("aria-label");
@@ -49,6 +58,7 @@ export function scanGroup(node, enabled = true) {
   const buttons = () => [...node.querySelectorAll("button:not([disabled])")];
 
   function show(next, speak) {
+    node.querySelectorAll(".scan-focus").forEach((b) => b.classList.remove("scan-focus"));
     const list = buttons();
     if (!list.length) return;
     index = ((next % list.length) + list.length) % list.length;
@@ -60,7 +70,7 @@ export function scanGroup(node, enabled = true) {
     clearTimeout(timer);
     const ms = SCAN_MS_OPTIONS.includes(get(prefs).scanMs) ? get(prefs).scanMs : DEFAULT_SCAN_MS;
     timer = setTimeout(() => {
-      show(index + 1, true);
+      if (!typing()) show(index + 1, true);
       schedule();
     }, ms);
   }

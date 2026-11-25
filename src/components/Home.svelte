@@ -4,6 +4,7 @@
   import { normalizeCode, CODE_DIGITS } from "../lib/net.js";
   import { rb } from "../lib/text.js";
   import GameIcon from "./GameIcon.svelte";
+  import { scanGroup } from "../lib/scan.js";
 
   let { initialCode = null, initialKey = null } = $props();
 
@@ -61,7 +62,8 @@
         <button class="btn small" onclick={() => session.leave()}>{@html rb("やめる")}</button>
       </div>
     {:else if !joining}
-      <div class="actions">
+      <!-- ボタンが順に光り、スイッチで選ぶ（lib/scan.js）。許可を待っているあいだは光らせない（押して「やめる」にならないように）。 -->
+      <div class="actions" use:scanGroup>
         <button class="btn primary big" onclick={create} disabled={busy}>{@html rb("部屋[へや]を つくる")}</button>
         <button class="btn big" onclick={() => (joining = true)} disabled={busy}>{@html rb("部屋[へや]に はいる")}</button>
         <button class="btn" onclick={solo} disabled={busy}>{@html rb("ひとりで あそぶ")}</button>
@@ -80,7 +82,7 @@
           onkeydown={(e) => e.key === "Enter" && join("play")}
         />
       </label>
-      <div class="actions">
+      <div class="actions" use:scanGroup>
         <button class="btn primary big" onclick={() => join("play")} disabled={!validCode || busy}>{@html rb("あそぶ")}</button>
         <button class="btn big" onclick={() => join("watch")} disabled={!validCode || busy}>{@html rb("見[み]るだけ")}</button>
         <button class="btn small" onclick={() => (joining = false)} disabled={busy}>{@html rb("もどる")}</button>

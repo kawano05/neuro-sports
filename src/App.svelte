@@ -3,7 +3,7 @@
   import { get } from "svelte/store";
   import { session, audio, bus, announcement, predicted } from "./lib/app.js";
   import { createSwitchInput } from "./lib/input.js";
-  import { scanSelect } from "./lib/scan.js";
+  import { scanSelect, scanning } from "./lib/scan.js";
   import { normalizeCode } from "./lib/net.js";
   import Home from "./components/Home.svelte";
   import Room from "./components/Room.svelte";
@@ -18,12 +18,14 @@
   const initialKey = (hashParams.get("key") || "").replace(/[^a-z0-9]/g, "").slice(0, 40) || null;
 
   const input = createSwitchInput({
-    accepting: () => !settingsOpen && !!get(session).state,
+    // 部屋に入る前（ホーム）は、光っているボタンを選ぶときだけ受ける。
+    accepting: () => !settingsOpen && (!!get(session).state || get(scanning)),
     onPress(t) {
       audio.unlock();
-      // 選ぶ画面（試合のおわり など）では、光っているボタンを押す（lib/scan.js）。
+      // 選ぶ画面（ホーム・部屋・試合のおわり など）では、光っているボタンを押す（lib/scan.js）。
       if (scanSelect(t)) return;
       const s = get(session);
+      if (!s.state) return;
       const st = s.state;
       session.press(t, (press) => {
         const myTurn = st?.screen === "game" && st.turn?.playerId === s.myId;
