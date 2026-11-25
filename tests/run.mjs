@@ -8,6 +8,8 @@ import {
   simulateHit,
   wallResult,
   fenceR,
+  stopResult,
+  HOME,
   OUT,
   SPIN_PERIOD_MS,
 } from "../src/lib/games/baseball.js";
@@ -166,8 +168,24 @@ test("でたらめに押しても、上手に押しても、アウトは出る�
     }
     return outs / N;
   };
-  assert.ok(outRate(80) > 0.15, "上手な人でもアウトが出る");
-  assert.ok(outRate(400) > 0.4);
+  // 外野で止まった球はヒットにした（2026-11-25）。それでも穴とアウトの区画で、アウトは出る。
+  assert.ok(outRate(80) > 0.1, "上手な人でもアウトが出る");
+  assert.ok(outRate(400) > 0.2);
+});
+
+test("どこにも入らずに止まったら、内野ならアウト、外野ならヒット", () => {
+  assert.equal(stopResult(HOME.x, HOME.y - 200), OUT);
+  assert.equal(stopResult(HOME.x, HOME.y - 400), 1);
+  let seed = 11;
+  const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  let outfield = 0;
+  for (let i = 0; i < 3000; i += 1) {
+    const r = simulateHit((rng() * 2 - 1) * 600, 600, rng);
+    if (r.where.kind !== "stop") continue;
+    assert.equal(r.n, stopResult(r.stop.x, r.stop.y));
+    if (r.n === 1) outfield += 1;
+  }
+  assert.ok(outfield > 100, "外野で止まってヒットになる球がある");
 });
 
 test("フェンスの区画は真ん中ほど長打で、あいだにアウトの区画", () => {

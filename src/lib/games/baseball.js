@@ -8,7 +8,9 @@
 //   - 外野のフェンス（奥の壁）は区画に分かれていて、ヒットの区画のあいだにアウトの区画がある。
 //     真ん中がホームラン、外へ スリーベース・アウト・ツーベース・アウト・ヒット。
 //   - 盤の上の穴は、野手のいる位置（一塁・二塁・遊撃・三塁・左・中・右）。ゆっくり来たボールは落ちて、アウト。
-//   - どこにも入らずに止まったら、アウト（内野でも外野でも）。
+//   - どこにも入らずに止まったら、内野ならアウト（ゴロ）、外野ならヒット（野手のあいだに落ちた）。
+//     （ユニバーサル野球では外野でもアウト。こちらは、見える所（穴・アウトの区画）でだけアウトになるよう変えた。
+//      2026-11-25 の打ち合わせ: 帯のうすい色で打つと約半分がアウトで、その多くが「外野でただ止まる」だった）
 //   - フェンスは、センターが遠く、線ぞいが近い（本物の球場の形）。弱い当たりでも、線ぞいならヒットになりうる。
 // 押したタイミングで、打つ向きと強さが決まる。真ん中で打つほど、まっすぐ強く、高く飛ぶ。
 // 早く振ると左へ、遅く振ると右へ。向きと強さには、本物の盤のようなばらつきがある
@@ -65,7 +67,7 @@ export const OUTS_PER_HALF = 3;
 export const HOME = { x: 500, y: 1000 };
 export const FENCE_R = 600;
 export const LINE_R = 470;
-/** 内野の土の広さ（絵だけ。止まったらどこでもアウト）。 */
+/** 内野の土の広さ。ここより内で止まったらアウト、外で止まったらヒット。 */
 export const INFIELD_R = 255;
 /** 打った瞬間のボールの位置（円盤のふち、バットの前）。 */
 export const LAUNCH = { x: 500, y: 968 };
@@ -149,6 +151,11 @@ function gaussFrom(rng) {
 }
 
 /** 本塁の前（LAUNCH）から角度 spray へまっすぐ行ったとき、フェンスまでの道のり。 */
+/** どこにも入らずに止まったときの結果。内野ならアウト、外野ならヒット。 */
+export function stopResult(x, y) {
+  return Math.hypot(x - HOME.x, y - HOME.y) < INFIELD_R ? OUT : 1;
+}
+
 export function fenceDistance(spray) {
   const r = fenceR(spray) - BALL_R;
   const back = HOME.y - LAUNCH.y;
@@ -286,16 +293,16 @@ export function simulateHit(offset, window, rng = Math.random) {
       }
     }
     if (!where && v === 0) {
-      // どこにも入らずに止まった: アウト。
+      // どこにも入らずに止まった: 内野ならアウト、外野ならヒット。
+      n = stopResult(x, y);
       where = { kind: "stop" };
-      n = OUT;
     }
     if (step % (120 / FPS) === 0 || where) frames.push(frame());
     if (where) break;
   }
   if (!where) {
+    n = stopResult(x, y);
     where = { kind: "stop" };
-    n = OUT;
   }
   if (where.kind !== "over" && z > 0) {
     // 空中でフェンスに当たった（など）: その場で下に落ちる。
