@@ -10,6 +10,7 @@ export const DEFAULT_PREFS = Object.freeze({
   speech: true,
   volume: "mid", // small | mid | large
   scanMs: 1600, // 選ぶ画面で、ボタンの光が移る間（lib/scan.js）
+  scanFeedback: "speak", // 光が移ったときの合図: speak（ことばを読む）| tick（小さな音）| none
   settings: null,
 });
 

@@ -6,8 +6,11 @@
 // （黄色い枠）、スイッチ・画面・「えらぶ」ボタンのどれかを押すと、光っているボタンを押す。
 // neuro の走査（scan.js）と同じ考え方。
 //
-// - 光が移るたびに、ボタンの言葉を読み上げる（読み上げ「なし」なら読まない）。
-//   最初の1つは読まない（直前の「おわり！」などの読み上げを切らないため）。
+// - 光が移るたびに知らせる。何で知らせるかは、この端末の設定「光が うつったときの 合図」（prefs.scanFeedback）:
+//     speak … ボタンの言葉を読む（neuro の「名前を読む」）。読めないとき（読み上げ「なし」・ほかの読み上げの最中）は、小さな音。
+//     tick  … 小さな音（ピッ）だけ。
+//     none  … 知らせない（光だけ）。
+//   最初の1つは知らせない（直前の「おわり！」などの読み上げを切らないため）。
 // - 選ぶ画面が出てすぐ（0.7秒）の押しは、選ばずに捨てる（打った勢いで押してしまうのを防ぐ）。
 // - 光の間は、この端末の設定「えらぶ 光の はやさ」（prefs.scanMs）。
 // - ボタンはタップでも、そのまま押せる。
@@ -23,6 +26,7 @@ import { writable, get } from "svelte/store";
 import { prefs, audio } from "./app.js";
 
 export const SCAN_MS_OPTIONS = [1200, 1600, 2400, 3200];
+export const SCAN_FEEDBACK = ["speak", "tick", "none"];
 export const DEFAULT_SCAN_MS = 1600;
 const GUARD_MS = 700;
 
@@ -47,6 +51,15 @@ function labelOf(button) {
   return copy.textContent.replace(/\s+/g, " ").trim();
 }
 
+/** 光が移ったことを、設定の合図で知らせる。 */
+function announce(button) {
+  const mode = SCAN_FEEDBACK.includes(get(prefs).scanFeedback) ? get(prefs).scanFeedback : "speak";
+  if (mode === "none") return;
+  // ほかの読み上げ（結果・入った人など）の最中は、読まずに音だけ（読み上げは前のものを切るため）。
+  if (mode === "speak" && !globalThis.speechSynthesis?.speaking && audio.speak(labelOf(button))) return;
+  audio.scanTick();
+}
+
 /**
  * Svelte の use: で、選ぶボタンの入れ物に付ける。中の（押せる）ボタンを順に光らせる。
  * use:scanGroup={false} のときは光らせない（ホストでない人の部屋など）。
@@ -66,7 +79,7 @@ export function scanGroup(node, enabled = true) {
     if (!list.length) return;
     index = ((next % list.length) + list.length) % list.length;
     list.forEach((b, k) => b.classList.toggle("scan-focus", k === index));
-    if (speak && !globalThis.speechSynthesis?.speaking) audio.speak(labelOf(list[index]));
+    if (speak) announce(list[index]);
   }
 
   function schedule() {

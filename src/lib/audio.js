@@ -244,11 +244,12 @@ export function createAudio(getPrefs) {
   }
   globalThis.speechSynthesis?.addEventListener?.("voiceschanged", pickVoice);
 
+  /** 読み上げる。読めたら true（読み上げ「なし」・使えない環境では false）。 */
   function speak(text) {
-    if (!getPrefs().speech) return;
+    if (!getPrefs().speech) return false;
     const synth = globalThis.speechSynthesis;
     const U = globalThis.SpeechSynthesisUtterance;
-    if (!synth || !U || !text) return;
+    if (!synth || !U || !text) return false;
     try {
       synth.cancel();
       const u = new U(text);
@@ -257,9 +258,18 @@ export function createAudio(getPrefs) {
       u.volume = Math.min(1, (VOLUME_LEVELS[getPrefs().volume] ?? 0.8) + 0.2);
       if (voice || pickVoice()) u.voice = voice;
       synth.speak(u);
+      return true;
     } catch {
       /* 読み上げが使えない */
+      return false;
     }
+  }
+
+  /** 選ぶ画面で、光が次のボタンへ移った「ピッ」（neuro の playScanTick と同じ高さと長さ）。 */
+  function scanTick() {
+    const c = ensure();
+    if (!c) return;
+    toneAt(c.currentTime, 1320, EFFECT_PEAK * 0.5, "triangle", 0.06);
   }
 
   return {
@@ -279,5 +289,6 @@ export function createAudio(getPrefs) {
     clack,
     fanfare,
     speak,
+    scanTick,
   };
 }
