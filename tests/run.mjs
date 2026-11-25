@@ -306,10 +306,14 @@ function room(names) {
   return s;
 }
 
-/** 打って、止まって、次のボールまで進める。 */
+/**
+ * 打って、止まって、次のボールまで進める。
+ * offset が "out" なら、帯の端のほう（広さの 0.8）で打つ（ばらつき 0 で、フェンスのアウトの区画へ）。
+ */
 function atBat(s, offset) {
   const who = s.turn.playerId;
   const bb = s.baseball;
+  if (offset === "out") offset = Math.round(bb.window * 0.8);
   const after = s.turn.since + TURN_GUARD_MS + 10;
   const k = Math.ceil((after - bb.sweetAt) / bb.period);
   const t = bb.sweetAt + k * bb.period + offset;
@@ -339,7 +343,7 @@ test("野球（アウトなし）: アウトの場所に止まってもヒット
   let s = room(["a"]);
   s = reduce(s, { type: "settings", game: "baseball", key: "format", value: "together" }, 0);
   s = reduce(s, { type: "start", game: "baseball" }, 0);
-  s = atBat(s, 480);
+  s = atBat(s, "out");
   assert.equal(s.baseball.log.at(-1).n, 1);
   assert.deepEqual(s.baseball.bases, ["a", null, null]);
 });
@@ -363,7 +367,7 @@ test("野球（イニング制）: 3アウトでチェンジ、決めた回で�
   assert.deepEqual(s.baseball.teams, ["red", "blue"]);
   assert.equal(s.baseball.batting, "red");
   // 赤: 3アウトでチェンジ。
-  for (let i = 0; i < 3; i += 1) s = atBat(s, 480);
+  for (let i = 0; i < 3; i += 1) s = atBat(s, "out");
   assert.equal(s.baseball.batting, "blue");
   assert.equal(s.baseball.half, 1);
   assert.equal(s.turn.playerId, "b");
@@ -371,8 +375,8 @@ test("野球（イニング制）: 3アウトでチェンジ、決めた回で�
   // 青: ホームラン（1点）のあと2アウト。1人のチームなので3打席で打ち切り → 1回でおわり。青の勝ち。
   s = atBat(s, 0);
   assert.equal(s.baseball.score.blue, 1);
-  s = atBat(s, 480);
-  s = atBat(s, 480);
+  s = atBat(s, "out");
+  s = atBat(s, "out");
   assert.equal(s.baseball.phase, "done");
   assert.equal(s.baseball.winner, "blue");
   assert.equal(s.turn, null);
@@ -388,7 +392,7 @@ test("野球（打席制・既定）: 赤青が1人ずつ交互に打ち、点�
   assert.deepEqual(s.baseball.bases, [null, null, null]);
   assert.equal(s.turn.playerId, "b");
   assert.equal(s.baseball.batting, "blue");
-  s = atBat(s, 480); // アウト = 0点
+  s = atBat(s, "out"); // アウト = 0点
   assert.equal(s.baseball.score.blue, 0);
   assert.equal(s.turn.playerId, "a");
   s = atBat(s, 0);

@@ -39,8 +39,9 @@ export const SPIN_PERIOD_MS = { slowest: 12000, slower: 8000, slow: 6000, normal
 /**
  * 当たる広さ（あたる ところの、真ん中から前後の時間、ミリ秒）。
  * always は円盤のどこにあっても当たる（半周 = 前後いっぱい）。
+ * 2026-11-25 に広げた（ひろい ±0.6 → ±0.9秒）。円盤もゆっくりにしたので、帯の角度は ふつうの速さで ±64° → ±70°。
  */
-export const HIT_WIDTH_MS = { narrow: 220, normal: 380, wide: 600, always: Infinity };
+export const HIT_WIDTH_MS = { narrow: 300, normal: 550, wide: 900, always: Infinity };
 
 /** 結果。0 はアウト、1〜4 は何塁打か。 */
 export const OUT = 0;
