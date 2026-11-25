@@ -450,7 +450,7 @@
         <circle cx={rolling.x} cy={rolling.y} r={(14 + 30 * easeOut(k)) / ppu} fill="none" stroke="#FFFFFF" stroke-width={5 / ppu} opacity={(1 - k * 0.6).toFixed(2)} />
       {/if}
       <!-- 影は地面に残る（高く上がるほど小さく、うすく） -->
-      <ellipse cx={rolling.x} cy={rolling.y} rx={ballR * 0.95 * (1 - air * 0.4)} ry={ballR * 0.5 * (1 - air * 0.4)} fill="#1A1A1A" opacity={(0.3 * (1 - air * 0.5)).toFixed(2)} />
+      <ellipse cx={rolling.x} cy={rolling.y} rx={ballR * 1.1 * (1 - air * 0.25)} ry={ballR * 0.6 * (1 - air * 0.25)} fill="#1A1A1A" opacity={(0.42 * (1 - air * 0.35)).toFixed(2)} />
       <g transform={`translate(${rolling.x.toFixed(1)} ${(rolling.y - rolling.z * LIFT).toFixed(1)}) scale(${((ballR / BALL) * (rolling.stopped && rolling.inPocket ? 0.75 : 1 + rolling.z / 220)).toFixed(3)})`}>
         <circle r={BALL} fill="#FFFFFF" stroke="#1A1A1A" stroke-width="5" />
         <path d="M-11 -18 Q 1 0 -11 18 M11 -18 Q -1 0 11 18" fill="none" stroke="#E0302D" stroke-width="3.6" />
