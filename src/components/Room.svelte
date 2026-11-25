@@ -1,6 +1,8 @@
 <script>
   // 待っている部屋。番号と入り方・いる人・遊び（ホストが選ぶ）。
   // ここでスイッチを押すと、自分の名前が全員の画面で弾む（スイッチの ためし）。
+  // ホスト（ひとりのときも）は、「野球・ボッチャ・はじめる」が順に光り、スイッチで選ぶ（lib/scan.js）。
+  // そのあいだ、ホストの押しは「ためし」ではなく「えらぶ」になる。
   import { session, prefs, updatePrefs } from "../lib/app.js";
   import { activePlayers, playingCount, MAX_PLAYING, MAX_IN_ROOM } from "../lib/engine.js";
   import { rb, GAME_LABELS } from "../lib/text.js";
@@ -9,6 +11,7 @@
   import GameIcon from "./GameIcon.svelte";
   import Icon from "./Icon.svelte";
   import JoinRequests from "./JoinRequests.svelte";
+  import { scanGroup, scanning } from "../lib/scan.js";
 
   let { surface, onSettings } = $props();
 
@@ -80,7 +83,7 @@
   {/if}
 
   <div class="body">
-    <section class="games" aria-label="あそび">
+    <section class="games" aria-label="あそび" use:scanGroup={isHost}>
       {#each ["baseball", "boccia"] as game}
         {#if isHost || state.game === game}
           <button
@@ -88,6 +91,7 @@
             class:chosen={state.game === game}
             type="button"
             disabled={!isHost}
+            data-scan-then=".start"
             onclick={() => session.act({ type: "chooseGame", game })}
           >
             <GameIcon {game} />
@@ -122,7 +126,7 @@
   </div>
 
   <footer class="press-area">
-    <PressButton {surface} mode="test" />
+    <PressButton {surface} mode={$scanning ? "choose" : "test"} />
   </footer>
 </main>
 

@@ -106,7 +106,7 @@ select:focus-visible {
 }
 
 /* 選ぶ画面で、いま光っているボタン（スイッチで押すと、これを押す。lib/scan.js） */
-.btn.scan-focus {
+.scan-focus {
   outline: 7px solid #ffd84d;
   outline-offset: 4px;
   box-shadow: 0 0 0 14px rgba(255, 216, 77, 0.35);
