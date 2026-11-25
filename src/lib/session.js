@@ -16,12 +16,18 @@
 //   - ホストが配るリンクの合言葉（key）を持って来た人は、そのまま入れる。
 //     番号だけで来た人は、ホストが「入れる」を押すまで待つ（そのあいだ、部屋の様子は何も送らない）。
 //   - ホストは人を外せる。外した人の札は使えなくなる。
+//   - 合言葉も札も、線の上には流さない。入るときのあいさつで、まずホストが「知っている」ことを
+//     見せ、ゲストはそれを確かめてから、自分も「知っている」ことを見せる（handshake.js）。
+//     にせのホスト（番号を横取りした人）には、合言葉も札も渡らない。
 // =====================================================================
 
 import { writable } from "svelte/store";
 import { createState, nextWake, reduce, playerById, roomHasSpace } from "./engine.js";
-import { hostRoom, joinRoom, randomToken, troubleText } from "./net.js";
+import * as realNet from "./net.js";
+import { proof, same, tokenId } from "./handshake.js";
 import { loadPrefs, savePrefs, clientId, loadRoomToken, saveRoomToken } from "./prefs.js";
+
+const { randomToken, troubleText } = realNet;
 
 const PING_FAST_MS = 700;
 const PING_SLOW_MS = 4000;
@@ -29,8 +35,14 @@ const PING_FAST_COUNT = 6;
 const CLOCK_SAMPLES = 12;
 /** これだけ便りの無いゲストは、抜けたものとする。 */
 const GUEST_SILENT_MS = 16000;
+/** つないでから、あいさつ（hello → prove → join）を終えるまでの時間。過ぎたら切る。 */
+const HANDSHAKE_MS = 10000;
 
-export function createSession() {
+/**
+ * @param {{ transport?: { hostRoom: Function, joinRoom: Function } }} [options]
+ *   transport はテストで差しかえる（ふだんは net.js の PeerJS）。
+ */
+export function createSession({ transport = realNet } = {}) {
   const store = writable({
     mode: null, // host | guest | solo | null
     status: "idle", // idle | connecting | open | closed | error
@@ -41,6 +53,7 @@ export function createSession() {
     trouble: null,
     roomKey: null, // ホストだけ: リンクの合言葉
     pending: [], // ホストだけ: 入りたい人 [{ key, name }]
+    hostChecked: null, // ゲストだけ: ホストが合言葉か札を知っていると確かめられたか
   });
   let current = null;
   store.subscribe((value) => {
@@ -64,7 +77,12 @@ export function createSession() {
   const tokens = new Map();
   const pending = new Map();
   const removed = new Set();
+  // ホスト: あいさつの途中の接続 → { at: つないだ時刻, hs?: { ctx, token } }。
+  const greeting = new Map();
   let roomKey = null;
+  // ゲスト: あいさつの途中のこと（ゲストの乱数・合言葉・札・送ったか）。
+  let guestHs = null;
+  let guestHsTimer = null;
 
   const hostNow = () => performance.now() + offset;
   const isHostLike = () => current.mode === "host" || current.mode === "solo";
@@ -118,9 +136,10 @@ export function createSession() {
     roomKey = randomToken(12);
     store.update((v) => ({ ...v, mode: "host", status: "connecting", error: null, code: null, myId: clientId(), roomKey }));
     try {
-      net = await hostRoom({
+      net = await transport.hostRoom({
         onOpen(conn) {
           lastSeen.set(conn, performance.now());
+          greeting.set(conn, { at: performance.now(), hs: null });
         },
         onData(conn, msg) {
           lastSeen.set(conn, performance.now());
@@ -132,6 +151,7 @@ export function createSession() {
         },
         onClose(conn) {
           if (pending.delete(conn)) syncPending();
+          greeting.delete(conn);
           const id = connPlayer.get(conn);
           connPlayer.delete(conn);
           lastSeen.delete(conn);
@@ -164,6 +184,14 @@ export function createSession() {
 
   function checkGuestsAlive() {
     const now = performance.now();
+    // あいさつを終えない接続は切る（ping だけ送って居座り、あとで印の横流しに使われないように）。
+    for (const [conn, g] of greeting) {
+      if (now - g.at > HANDSHAKE_MS) {
+        greeting.delete(conn);
+        lastSeen.delete(conn);
+        net?.drop(conn);
+      }
+    }
     for (const [conn, seen] of lastSeen) {
       if (now - seen > GUEST_SILENT_MS) {
         lastSeen.delete(conn);
@@ -181,17 +209,42 @@ export function createSession() {
     const id = connPlayer.get(conn);
     switch (msg.type) {
       case "hello": {
+        // あいさつ 1/2: ゲストの乱数を受けて、ホストが合言葉（と札）を知っている印を返す。
         if (connPlayer.has(conn) || pending.has(conn)) return;
+        if (typeof msg.n !== "string" || !/^[a-z0-9]{8,64}$/.test(msg.n)) return;
+        // 「つながった」の知らせより先に hello が届いても、受ける。
+        if (!greeting.has(conn)) greeting.set(conn, { at: performance.now(), hs: null });
+        const g = greeting.get(conn);
+        if (g.hs) return;
+        const { local, remote } = net.channel(conn);
+        const ctx = { g: msg.n, h: randomToken(16), gf: remote, hf: local };
+        // 札は目じるし（tid）で探す。札そのものは送られてこない。
+        let token = null;
+        if (typeof msg.tid === "string") {
+          for (const [tok, owner] of tokens) {
+            if (!removed.has(owner) && tokenId(tok) === msg.tid) token = tok;
+          }
+        }
+        g.hs = { ctx, token };
+        net.send(conn, { type: "prove", n: ctx.h, k: proof(roomKey, "host", ctx), t: proof(token, "host", ctx) });
+        return;
+      }
+      case "join": {
+        // あいさつ 2/2: ゲストの印を確かめて入れる。印が無ければ、許可を待ってもらう。
+        const g = greeting.get(conn);
+        if (!g?.hs) return;
+        greeting.delete(conn);
+        const { ctx, token } = g.hs;
         const name = String(msg.name || "").trim().slice(0, 12);
         const role = msg.role === "watch" ? "watch" : "play";
         // 入り直し: 札を知っている人だけ（id では入り直せない）。
-        const known = typeof msg.token === "string" ? tokens.get(msg.token) : null;
-        if (known && !removed.has(known)) {
-          admit(conn, { id: known, token: msg.token, name, role });
+        const known = token ? tokens.get(token) : null;
+        if (known && !removed.has(known) && same(msg.t, proof(token, "guest", ctx))) {
+          admit(conn, { id: known, token, name, role });
           return;
         }
-        // リンクの合言葉を持って来た人は、そのまま入れる。
-        if (typeof msg.key === "string" && msg.key === roomKey) {
+        // リンクの合言葉を知っている人は、そのまま入れる。
+        if (same(msg.k, proof(roomKey, "guest", ctx))) {
           admit(conn, { name, role });
           return;
         }
@@ -301,7 +354,7 @@ export function createSession() {
     lastEventId = 0;
     store.update((v) => ({ ...v, mode: "guest", status: "connecting", error: null, code }));
     try {
-      net = await joinRoom(code, {
+      net = await transport.joinRoom(code, {
         onData: onHostMessage,
         onClose() {
           stopTimers();
@@ -313,9 +366,38 @@ export function createSession() {
       store.update((v) => ({ ...v, status: "error", error: troubleText(error) }));
       return false;
     }
-    net.send({ type: "hello", name: me.name, role: me.role, key: key || undefined, token: loadRoomToken(code) || undefined });
+    // あいさつ 1/2: 秘密は送らない。乱数と、札の目じるしだけ。
+    const token = loadRoomToken(code);
+    guestHs = { g: randomToken(16), key: key || null, token, me, sent: false };
+    net.send({ type: "hello", n: guestHs.g, tid: token ? tokenId(token) : undefined });
+    clearTimeout(guestHsTimer);
+    guestHsTimer = setTimeout(() => {
+      if (!guestHs || guestHs.sent) return;
+      store.update((v) => ({ ...v, status: "error", error: "へやの ホストから へんじが ありません" }));
+      net?.close();
+      net = null;
+    }, HANDSHAKE_MS);
     ping();
     return true;
+  }
+
+  /** あいさつ 2/2: ホストの印を確かめる。合えば自分の印を、合わなければ名前だけを送る。 */
+  function onProve(msg) {
+    if (!guestHs || guestHs.sent || typeof msg.n !== "string") return;
+    clearTimeout(guestHsTimer);
+    const { local, remote } = net.channel();
+    const ctx = { g: guestHs.g, h: msg.n, gf: local, hf: remote };
+    const { key, token, me } = guestHs;
+    const checked = same(msg.k, proof(key, "host", ctx)) || same(msg.t, proof(token, "host", ctx));
+    guestHs.sent = true;
+    store.update((v) => ({ ...v, hostChecked: checked }));
+    net.send({
+      type: "join",
+      name: me.name,
+      role: me.role,
+      k: checked ? proof(key, "guest", ctx) : undefined,
+      t: checked ? proof(token, "guest", ctx) : undefined,
+    });
   }
 
   /** 切れたあと、同じ部屋に同じ人として入り直す。 */
@@ -345,7 +427,12 @@ export function createSession() {
 
   function onHostMessage(msg) {
     if (!msg || typeof msg !== "object") return;
+    // あいさつ（join を送る）より前に来た「入れた・待って」は受けない。
+    if ((msg.type === "wait" || msg.type === "welcome") && !guestHs?.sent) return;
     switch (msg.type) {
+      case "prove":
+        onProve(msg);
+        return;
       case "wait":
         store.update((v) => ({ ...v, status: "waiting" }));
         return;
@@ -378,7 +465,8 @@ export function createSession() {
                   ? "へやから はずされました"
                   : "へやに はいれませんでした",
         }));
-        if (msg.reason === "removed") saveRoomToken(current.code, null);
+        // 札を捨てるのは、この線で入れてもらったあとだけ（入る前の「外した」は、にせかもしれない）。
+        if (msg.reason === "removed" && state) saveRoomToken(current.code, null);
         net?.close();
         net = null;
         return;
@@ -427,9 +515,11 @@ export function createSession() {
     clearTimeout(wakeTimer);
     clearTimeout(pingTimer);
     clearInterval(liveTimer);
+    clearTimeout(guestHsTimer);
     wakeTimer = null;
     pingTimer = null;
     liveTimer = null;
+    guestHsTimer = null;
     pingCount = 0;
   }
 
@@ -443,8 +533,10 @@ export function createSession() {
     tokens.clear();
     pending.clear();
     removed.clear();
+    greeting.clear();
+    guestHs = null;
     roomKey = null;
-    store.update((v) => ({ ...v, mode: null, status: "idle", state: null, code: null, error: null, trouble: null, roomKey: null, pending: [] }));
+    store.update((v) => ({ ...v, mode: null, status: "idle", state: null, code: null, error: null, trouble: null, roomKey: null, pending: [], hostChecked: null }));
   }
 
   return {

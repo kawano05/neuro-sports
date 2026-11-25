@@ -28,6 +28,10 @@ import {
 import { createState, reduce, activePlayers, TURN_GUARD_MS, MAX_PLAYING, MAX_IN_ROOM, PLAYER_COLORS, WATCH_COLOR, roomHasSpace } from "../src/lib/engine.js";
 import { rb, plain } from "../src/lib/text.js";
 import { makeRoomCode, normalizeCode, randomToken } from "../src/lib/net.js";
+import { sha256, hmac, sdpFingerprints, proof, same, tokenId } from "../src/lib/handshake.js";
+import { createSession } from "../src/lib/session.js";
+import { get } from "svelte/store";
+import nodeCrypto from "node:crypto";
 
 let passed = 0;
 const failures = [];
@@ -534,6 +538,250 @@ test("ホストが外した人は、名前の列から消え、二度と入れ�
   // ホスト自身は外せない。
   assert.equal(reduce(s, { type: "remove", id: "a" }, 40), s);
 });
+
+// --- 入るときのあいさつ（ホストのなりすまし対策） ---------------------------
+
+test("SHA-256 と HMAC は、Node の crypto と同じ値になる", () => {
+  const hex = (b) => Buffer.from(b).toString("hex");
+  for (const n of [0, 1, 55, 56, 63, 64, 65, 200]) {
+    const buf = nodeCrypto.randomBytes(n);
+    assert.equal(hex(sha256(new Uint8Array(buf))), nodeCrypto.createHash("sha256").update(buf).digest("hex"));
+  }
+  for (const [k, m] of [["", ""], ["合言葉", "あいさつ|abc"], ["x".repeat(100), "m".repeat(300)]]) {
+    assert.equal(hex(hmac(k, m)), nodeCrypto.createHmac("sha256", Buffer.from(k)).update(Buffer.from(m)).digest("hex"));
+  }
+});
+
+test("SDP から暗号のかぎの指紋を取り出す（大文字小文字・重なり・並びにかかわらず同じ）", () => {
+  const a = "v=0\r\na=fingerprint:sha-256 AB:CD:EF\r\nm=application\r\na=fingerprint:sha-256 AB:CD:EF\r\n";
+  const b = "v=0\na=fingerprint:SHA-256 ab:cd:ef\n";
+  assert.equal(sdpFingerprints(a), "sha-256 ab:cd:ef");
+  assert.equal(sdpFingerprints(a), sdpFingerprints(b));
+  assert.equal(sdpFingerprints(""), "");
+  assert.notEqual(sdpFingerprints("a=fingerprint:sha-256 11:22"), sdpFingerprints(a));
+});
+
+test("ホストの印は、ゲストの印として使い回せない。指紋が違えば合わない", () => {
+  const ctx = { g: "gggggggg", h: "hhhhhhhh", gf: "fp-g", hf: "fp-h" };
+  assert.notEqual(proof("key", "host", ctx), proof("key", "guest", ctx));
+  assert.notEqual(proof("key", "host", ctx), proof("key", "host", { ...ctx, gf: "fp-x" }));
+  assert.equal(proof(null, "host", ctx), undefined);
+  assert.equal(same(proof("key", "host", ctx), proof("key", "host", { ...ctx })), true);
+  assert.equal(same(undefined, undefined), false);
+  assert.notEqual(tokenId("tok"), "tok");
+});
+
+// 本物の session を、PeerJS の代わりの「線」でつないで、あいさつを通しで確かめる。
+{
+  const store = new Map();
+  globalThis.sessionStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+}
+const clone = (msg) => JSON.parse(JSON.stringify(msg));
+const later = (fn) => setImmediate(fn);
+const settle = async () => {
+  for (let i = 0; i < 40; i += 1) await new Promise((r) => setImmediate(r));
+};
+
+/** 部屋の番号を持つ相手（本物のホスト）。connect でゲストからの線を1本つくる。 */
+function hostEndpoint() {
+  let handlers = null;
+  const api = {
+    code: "123456",
+    send(conn, msg) {
+      if (conn.open) later(() => conn.toGuest(clone(msg)));
+    },
+    broadcast() {},
+    channel: (conn) => ({ local: conn.hostFp, remote: conn.guestFp }),
+    drop(conn) {
+      conn.open = false;
+    },
+    close() {},
+  };
+  return {
+    transport: { hostRoom: async (h) => ((handlers = h), api) },
+    connect(guestHandlers, { guestFp, hostFp = "fp-host" }) {
+      const conn = { open: true, guestFp, hostFp, toGuest: (m) => guestHandlers.onData(m) };
+      handlers.onOpen(conn);
+      return {
+        send: (msg) => conn.open && later(() => handlers.onData(conn, clone(msg))),
+        channel: () => ({ local: guestFp, remote: hostFp }),
+        close() {
+          conn.open = false;
+        },
+      };
+    },
+  };
+}
+
+/** ゲストの端末。to が、いま番号を持っている相手（本物か、にせか）。 */
+function guestTransport(target, guestFp) {
+  return { joinRoom: async (code, handlers) => target().connect(handlers, { guestFp }) };
+}
+
+/** にせのホスト: 受けたものを全部覚え、それらしい返事をする。 */
+function fakeHost({ welcomeEarly = false } = {}) {
+  const seen = [];
+  return {
+    seen,
+    connect(guestHandlers, { guestFp }) {
+      const reply = (m) => later(() => guestHandlers.onData(m));
+      return {
+        send(msg) {
+          seen.push(clone(msg));
+          if (msg.type === "hello") {
+            if (welcomeEarly) reply({ type: "welcome", id: "gfake", token: "faketoken", state: null });
+            reply({ type: "prove", n: "nnnnnnnnnnnn", k: "0".repeat(64), t: "0".repeat(64) });
+          }
+          if (msg.type === "join") reply({ type: "wait" });
+        },
+        channel: () => ({ local: guestFp, remote: "fp-fake" }),
+        close() {},
+      };
+    },
+  };
+}
+
+/** にせのホストが、本物のホストへ別の線を張って、あいさつを横流しする。 */
+function relayHost(real) {
+  const seen = [];
+  return {
+    seen,
+    connect(guestHandlers, { guestFp }) {
+      const back = real.connect({ onData: (m) => later(() => guestHandlers.onData(clone(m))) }, { guestFp: "fp-relay-back" });
+      return {
+        send(msg) {
+          seen.push(clone(msg));
+          back.send(msg);
+        },
+        channel: () => ({ local: guestFp, remote: "fp-relay-front" }),
+        close() {},
+      };
+    },
+  };
+}
+
+const me = (name) => ({ name, role: "play" });
+const asyncTests = [];
+const testAsync = (name, fn) => asyncTests.push({ name, fn });
+
+testAsync("リンクの合言葉で来た人は、ホストを確かめてから、そのまま入る（合言葉は線に流れない）", async () => {
+  const real = hostEndpoint();
+  const h = createSession({ transport: real.transport });
+  await h.host(me("ほすと"));
+  const key = get(h).roomKey;
+  const sent = [];
+  const g = createSession({ transport: guestTransport(() => ({ connect: (hd, o) => { const c = real.connect(hd, o); return { ...c, send: (m) => (sent.push(clone(m)), c.send(m)) }; } }), "fp-g1") });
+  await g.join("123456", me("あ"), key);
+  await settle();
+  assert.equal(get(g).hostChecked, true);
+  assert.equal(get(g).status, "open");
+  assert.match(get(g).myId, /^g/);
+  assert.equal(JSON.stringify(sent).includes(key), false);
+  g.leave();
+  h.leave();
+});
+
+testAsync("番号だけで来た人は、ホストの許可を待つ", async () => {
+  const real = hostEndpoint();
+  const h = createSession({ transport: real.transport });
+  await h.host(me("ほすと"));
+  const g = createSession({ transport: guestTransport(() => real, "fp-g2") });
+  await g.join("123456", me("い"));
+  await settle();
+  assert.equal(get(g).status, "waiting");
+  assert.equal(get(h).pending.length, 1);
+  h.admitPending(get(h).pending[0].key);
+  await settle();
+  assert.equal(get(g).status, "open");
+  g.leave();
+  h.leave();
+});
+
+testAsync("合言葉が作りなおされても、札を持っている人は同じ人として入り直せる", async () => {
+  const real = hostEndpoint();
+  const h = createSession({ transport: real.transport });
+  await h.host(me("ほすと"));
+  const oldKey = get(h).roomKey;
+  const a = createSession({ transport: guestTransport(() => real, "fp-a") });
+  const b = createSession({ transport: guestTransport(() => real, "fp-b") });
+  await b.join("123456", me("び"), oldKey);
+  await settle();
+  const bId = get(b).myId;
+  b.leave();
+  sessionStorage.removeItem("neuro-sports.token.123456");
+  await a.join("123456", me("え"), oldKey);
+  await settle();
+  const aId = get(a).myId;
+  h.removePlayer(bId); // 合言葉が作りなおされる
+  assert.notEqual(get(h).roomKey, oldKey);
+  a.leave();
+  await a.join("123456", me("え"), oldKey);
+  await settle();
+  assert.equal(get(a).hostChecked, true);
+  assert.equal(get(a).status, "open");
+  assert.equal(get(a).myId, aId);
+  a.leave();
+  h.leave();
+});
+
+testAsync("にせのホストには、合言葉も札も、使える印も渡らない", async () => {
+  sessionStorage.setItem("neuro-sports.token.123456", "realtoken1234567890x");
+  const fake = fakeHost();
+  const g = createSession({ transport: guestTransport(() => fake, "fp-g3") });
+  await g.join("123456", me("う"), "realkey12345");
+  await settle();
+  assert.equal(get(g).hostChecked, false);
+  const text = JSON.stringify(fake.seen);
+  assert.equal(text.includes("realkey12345"), false);
+  assert.equal(text.includes("realtoken1234567890x"), false);
+  const join = fake.seen.find((m) => m.type === "join");
+  assert.equal(join.k, undefined);
+  assert.equal(join.t, undefined);
+  assert.equal(join.name, "う");
+  g.leave();
+  sessionStorage.removeItem("neuro-sports.token.123456");
+});
+
+testAsync("にせのホストが、あいさつの前に「入れた」と言っても受けない", async () => {
+  const fake = fakeHost({ welcomeEarly: true });
+  const g = createSession({ transport: guestTransport(() => fake, "fp-g4") });
+  await g.join("123456", me("え"), "somekey12345");
+  await settle();
+  assert.notEqual(get(g).status, "open");
+  assert.equal(sessionStorage.getItem("neuro-sports.token.123456"), null);
+  g.leave();
+});
+
+testAsync("にせのホストが本物へ横流ししても、指紋が合わず、合言葉の人も許可待ちになる", async () => {
+  const real = hostEndpoint();
+  const h = createSession({ transport: real.transport });
+  await h.host(me("ほすと"));
+  const key = get(h).roomKey;
+  const relay = relayHost(real);
+  const g = createSession({ transport: guestTransport(() => relay, "fp-victim") });
+  await g.join("123456", me("お"), key);
+  await settle();
+  assert.equal(get(g).hostChecked, false);
+  assert.equal(get(g).status, "waiting");
+  assert.equal(get(h).pending.length, 1);
+  assert.equal(get(h).state.players.length, 1);
+  assert.equal(JSON.stringify(relay.seen).includes(key), false);
+  g.leave();
+  h.leave();
+});
+
+for (const { name, fn } of asyncTests) {
+  try {
+    await fn();
+    passed += 1;
+  } catch (error) {
+    failures.push({ name, error });
+  }
+}
 
 for (const { name, error } of failures) {
   console.error(`✗ ${name}\n  ${error.message}`);

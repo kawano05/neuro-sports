@@ -12,9 +12,16 @@
 // 番号は総当たりで見つけられる（前置きは公開のコードに書いてある）。なので番号だけでは
 // 入れない: 番号を打って来た人は、ホストが「入れる」を押すまで待つ（session.js）。
 // ホストが配るリンクには、推測できない合言葉（key）が付いていて、リンクから来た人はそのまま入れる。
+//
+// 番号は、ホストと案内役のサーバーの線が切れたすきに、別の人に名乗られるおそれがある。
+// なので合言葉と入り直しの札は、線の上には決して流さない（handshake.js）。
+// 線ごとの暗号のかぎの指紋（channel）は、その確かめに使う。
 // =====================================================================
 
-export const PEER_PREFIX = "neuro-sports-v2-";
+import { channelOf } from "./handshake.js";
+
+// v3: 入るときのあいさつを変えた（handshake.js）。古い版とは まざらないように、前置きを変える。
+export const PEER_PREFIX = "neuro-sports-v3-";
 export const CODE_DIGITS = 6;
 const OPEN_TIMEOUT_MS = 15000;
 
@@ -134,6 +141,10 @@ export async function hostRoom(handlers) {
       send(conn, msg) {
         if (conn.open) conn.send(msg);
       },
+      /** この線の、こちら（local）と相手（remote）の かぎの指紋。 */
+      channel(conn) {
+        return channelOf(conn.peerConnection);
+      },
       drop(conn) {
         conns.delete(conn);
         try {
@@ -192,6 +203,10 @@ export async function joinRoom(code, handlers) {
   return {
     send(msg) {
       if (conn.open) conn.send(msg);
+    },
+    /** この線の、こちら（local）と相手（remote）の かぎの指紋。 */
+    channel() {
+      return channelOf(conn.peerConnection);
     },
     close() {
       closed = true;
