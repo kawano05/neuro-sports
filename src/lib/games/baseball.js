@@ -32,7 +32,7 @@
  * 円盤が1周する時間（ミリ秒）。支援者が選ぶ。
  * 本物は1周2〜15秒で変えられる。いちばん遅いのは12秒。
  */
-export const SPIN_PERIOD_MS = { slowest: 12000, slower: 8000, slow: 4400, normal: 3400, fast: 2500 };
+export const SPIN_PERIOD_MS = { slowest: 12000, slower: 8000, slow: 6000, normal: 4600, fast: 3400 };
 
 /**
  * 当たる広さ（あたる ところの、真ん中から前後の時間、ミリ秒）。
