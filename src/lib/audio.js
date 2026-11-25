@@ -155,6 +155,15 @@ export function createAudio(getPrefs) {
     if (n >= 4) cheer(1.6, 0.25);
   }
 
+  /** 野球: 飛んだボールが地面に落ちた「トン」（低く、短く）。 */
+  function land() {
+    const c = ensure();
+    if (!c) return;
+    const at = c.currentTime;
+    toneAt(at, 150, EFFECT_PEAK * 0.7, "sine", 0.12);
+    noiseAt(at, { durationS: 0.06, gain: EFFECT_PEAK * 0.35, filter: "lowpass", frequency: 520, q: 0.7 });
+  }
+
   /** 歓声・拍手（雑音を細かく刻む）。 */
   function cheer(durationS = 1.2, delayS = 0) {
     const c = ensure();
@@ -257,6 +266,7 @@ export function createAudio(getPrefs) {
     unlock,
     applyVolume,
     cueAtHost,
+    land,
     swing,
     batHit,
     cheer,

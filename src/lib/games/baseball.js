@@ -3,16 +3,22 @@
 //
 // 本塁の上で円盤（回転台）が回っている。円盤のふちにボールが乗っていて、1周ごとに
 // バットの前（「あたる ところ」）を通る。スイッチを押すとバットを振る。
-// ボールが「あたる ところ」にあれば当たり、盤の上を転がっていく。
+// ボールが「あたる ところ」にあれば当たり、ボールは飛んで、落ちて、はねて、盤の上を転がっていく。
 // 結果は、ボールが止まったところで決まる（ユニバーサル野球の決まりに合わせた。2026-11-25 に調べた）:
 //   - 外野のフェンス（奥の壁）は区画に分かれていて、ヒットの区画のあいだにアウトの区画がある。
 //     真ん中がホームラン、外へ スリーベース・アウト・ツーベース・アウト・ヒット。
 //   - 盤の上の穴は、野手のいる位置（一塁・二塁・遊撃・三塁・左・中・右）。ゆっくり来たボールは落ちて、アウト。
 //   - どこにも入らずに止まったら、アウト（内野でも外野でも）。
 //   - フェンスは、センターが遠く、線ぞいが近い（本物の球場の形）。弱い当たりでも、線ぞいならヒットになりうる。
-// 押したタイミングで、打つ向きと強さが決まる。真ん中で打つほど、まっすぐ強く飛ぶ。
+// 押したタイミングで、打つ向きと強さが決まる。真ん中で打つほど、まっすぐ強く、高く飛ぶ。
 // 早く振ると左へ、遅く振ると右へ。向きと強さには、本物の盤のようなばらつきがある
 // （ねらい通りにはいかない。以前はばらつきが小さく、上手な人は毎回ホームランで、3アウトにならなかった）。
+// 強さは「その向きのフェンスまでの道のり」に合わせる。線ぞい（ヒットの区画）にも、ちゃんと届く
+// （以前は端の当たりほど弱く、線ぞいのヒットの区画には ほとんど届かなかった）。
+//
+// 飛んでいる間（と、はねている間）は、穴に落ちない（内野の穴を飛びこえる）。
+// 落ちる前にホームランの区画に届いたら、フェンスをこえてスタンドに入る。
+// ほかの区画に空中で届いたら（はねている時も）、フェンスに当たって下に落ちる（結果は区画のとおり）。
 //
 // ※ 仕組みは、本塁の回転台とスイッチで打つ野球盤（ユニバーサル野球）を参考にした。
 //   名前・ロゴ・盤の絵や色・穴の並びは使っていない（独自の盤）。
@@ -36,6 +42,14 @@ export const HIT_WIDTH_MS = { narrow: 220, normal: 380, wide: 600, always: Infin
 
 /** 結果。0 はアウト、1〜4 は何塁打か。 */
 export const OUT = 0;
+
+/**
+ * 押してから、ボールが飛び出すまで（バットが当たる形になるまで 0.09 秒 ＋ 手ごたえの「止め」0.07 秒）。
+ * 当たった瞬間に、ほんの少しだけ止める（ヒットストップ。neuro のごほうびの決まり: 60〜90ms）。
+ */
+export const CONTACT_MS = 90;
+export const HIT_STOP_MS = 70;
+export const LAUNCH_DELAY_MS = CONTACT_MS + HIT_STOP_MS;
 
 /** 止まってから、結果を見せておく時間（カメラが引いたまま。そのあと寄り直す）。 */
 export const RESULT_MS = 1900;
@@ -61,10 +75,31 @@ const DECEL = 260;
 /** これより遅いボールは、穴に落ちる（速いボールは穴を飛びこえる）。 */
 const CAPTURE_SPEED = 330;
 /** 打つ向きの広さ（真ん中から左右の角度）。 */
-const SPRAY_MAX = 40;
+const SPRAY_MAX = 42;
 /** 向きのばらつき（度）と、強さのばらつき（割合）。どちらも正規分布の標準偏差。 */
 const SPRAY_SPREAD = 10;
 const STRENGTH_SPREAD = 0.15;
+/**
+ * 強さ（転がって止まるまでの道のり）は、その向きのフェンスまでの道のりの何倍か。
+ * 当たりのよさ q（0〜1）で、BASE から BASE+Q まで。端の当たりでも、フェンスに届くことが多い。
+ */
+const STRENGTH_BASE = 1.05;
+const STRENGTH_Q = 0.15;
+/** 空を飛ぶ道のり（強さに対する割合）。よい当たりほど遠くまで飛ぶ。 */
+const CARRY_BASE = 0.3;
+const CARRY_Q = 0.5;
+/** 飛ぶ高さ（飛ぶ道のりに対する割合）。よい当たりは高いフライ、端の当たりは低いライナー。 */
+const LOFT_BASE = 0.12;
+const LOFT_Q = 0.22;
+/** 落ちたあとに はねる（飛ぶ道のり・高さに対する割合）。 */
+const BOUNCES = [
+  { len: 0.22, h: 0.18 },
+  { len: 0.08, h: 0.05 },
+];
+/** これより高ければ「空中」（フェンスをこえる・フェンスに当たって落ちる）。 */
+const AIR_MIN = 4;
+/** スタンドに入ったボールが落ちる、いちばん遠いところ（フェンスの外へ）。 */
+const OVER_MAX = 150;
 
 /** 本塁から見た角度 spray（センターが 0、左が負）での、フェンスまでの距離。 */
 export function fenceR(spray) {
@@ -113,6 +148,25 @@ function gaussFrom(rng) {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 
+/** 本塁の前（LAUNCH）から角度 spray へまっすぐ行ったとき、フェンスまでの道のり。 */
+export function fenceDistance(spray) {
+  const r = fenceR(spray) - BALL_R;
+  const back = HOME.y - LAUNCH.y;
+  const a = (spray * Math.PI) / 180;
+  return -back * Math.cos(a) + Math.sqrt(Math.max(0, r * r - back * back * Math.sin(a) ** 2));
+}
+
+/** 進んだ道のり d での高さ（飛ぶ山と、はねる小さな山）。 */
+function heightAt(d, arcs) {
+  for (const arc of arcs) {
+    if (d > arc.from && d < arc.to) {
+      const k = (d - arc.from) / (arc.to - arc.from);
+      return 4 * arc.h * k * (1 - k);
+    }
+  }
+  return 0;
+}
+
 /**
  * 実際に使う当たる広さ。半周より広くはしない（隣の周回と重ならない）。
  * @param {string} width HIT_WIDTH_MS のキー
@@ -148,45 +202,78 @@ export function wallResult(spray) {
 }
 
 /**
- * 打ったボールを転がす（ホストだけが計算して、コマと結果を配る）。
+ * 打ったボールを飛ばして転がす（ホストだけが計算して、コマと結果を配る）。
+ * コマは [x, y, 高さ]。x, y は地面の上の位置（影の位置）、高さは盤の単位。
+ * コマの 0 番目は、押してから LAUNCH_DELAY_MS 後（ボールが飛び出す時）。
  * @param {number} offset 押した時刻のずれ（ms）
  * @param {number} window 当たる広さ（ms）
  * @param {() => number} rng 0〜1
- * @returns {{frames: Array<[number,number]>, fps: number, durationMs: number, n: number,
- *   stop: {x:number,y:number}, where: {kind: "wall"|"pocket"|"stop", id?: string}, q: number, spray: number}}
+ * @returns {{frames: Array<[number,number,number]>, fps: number, durationMs: number, landMs: number|null, n: number,
+ *   stop: {x:number,y:number}, where: {kind: "wall"|"over"|"pocket"|"stop", id?: string, air?: boolean}, q: number, spray: number}}
  */
 export function simulateHit(offset, window, rng = Math.random) {
   const q = Math.max(0, Math.min(1, 1 - Math.abs(offset) / window));
   const side = Math.max(-1, Math.min(1, offset / window));
   const spray = side * SPRAY_MAX + gaussFrom(rng) * SPRAY_SPREAD;
-  const reach = Math.max(60, (330 + 470 * q) * (1 + gaussFrom(rng) * STRENGTH_SPREAD));
+  const ratio = (STRENGTH_BASE + STRENGTH_Q * q) * (1 + gaussFrom(rng) * STRENGTH_SPREAD);
+  const reach = Math.max(60, fenceDistance(spray) * ratio);
+  // 飛ぶ山と、はねる山（道のりで決める）。
+  const carry = reach * (CARRY_BASE + CARRY_Q * q);
+  const loft = carry * (LOFT_BASE + LOFT_Q * q);
+  const arcs = [{ from: 0, to: carry, h: loft }];
+  for (const b of BOUNCES) {
+    const from = arcs[arcs.length - 1].to;
+    arcs.push({ from, to: from + carry * b.len, h: loft * b.h });
+  }
+
   let v = Math.sqrt(2 * DECEL * reach);
   const a = ((-90 + spray) * Math.PI) / 180;
   const dir = { x: Math.cos(a), y: Math.sin(a) };
   let x = LAUNCH.x;
   let y = LAUNCH.y;
+  let z = 0;
+  let d = 0;
   const DT = 1 / 120;
   const FPS = 30;
-  const frames = [[Math.round(x), Math.round(y)]];
+  const frame = () => [Math.round(x), Math.round(y), Math.round(z)];
+  const frames = [frame()];
   let step = 0;
   let where = null;
   let n = null;
+  let over = false;
+  let landMs = null;
   while (step < 120 * 8) {
     v = Math.max(0, v - DECEL * DT);
     x += dir.x * v * DT;
     y += dir.y * v * DT;
+    d += v * DT;
+    z = heightAt(d, arcs);
     step += 1;
+    if (landMs === null && !over && d >= carry) landMs = Math.round((step / 120) * 1000);
     const fromHome = Math.hypot(x - HOME.x, y - HOME.y);
     const sNow = (Math.atan2(x - HOME.x, HOME.y - y) * 180) / Math.PI;
     const wallAt = fenceR(sNow) - BALL_R;
-    if (fromHome >= wallAt) {
-      // フェンスに着いた。区画で決まる（アウトの区画もある）。
-      const k = wallAt / fromHome;
-      x = HOME.x + (x - HOME.x) * k;
-      y = HOME.y + (y - HOME.y) * k;
-      where = { kind: "wall" };
+    if (over) {
+      // スタンドの中を飛んでいる。落ちたら（または いちばん遠くまで来たら）おわり。
+      if (d >= carry || fromHome >= wallAt + OVER_MAX) {
+        z = 0;
+        where = { kind: "over" };
+        n = 4;
+      }
+    } else if (fromHome >= wallAt) {
       n = wallResult(sNow);
-    } else if (v < CAPTURE_SPEED) {
+      if (d < carry && z > AIR_MIN && n === 4) {
+        // 飛んだまま（はねる前に）、ホームランの区画をこえた。
+        over = true;
+      } else {
+        // フェンスに着いた。区画で決まる（アウトの区画もある）。
+        const k = wallAt / fromHome;
+        x = HOME.x + (x - HOME.x) * k;
+        y = HOME.y + (y - HOME.y) * k;
+        where = { kind: "wall", air: z > AIR_MIN };
+      }
+    } else if (z === 0 && v < CAPTURE_SPEED) {
+      // 地面を転がっているときだけ、穴に落ちる。
       const pocket = POCKETS.find((p) => Math.hypot(x - p.x, y - p.y) < p.r);
       if (pocket) {
         x = pocket.x;
@@ -200,17 +287,26 @@ export function simulateHit(offset, window, rng = Math.random) {
       where = { kind: "stop" };
       n = OUT;
     }
-    if (step % (120 / FPS) === 0 || where) frames.push([Math.round(x), Math.round(y)]);
+    if (step % (120 / FPS) === 0 || where) frames.push(frame());
     if (where) break;
   }
   if (!where) {
     where = { kind: "stop" };
     n = OUT;
   }
+  if (where.kind === "wall" && z > 0) {
+    // 空中でフェンスに当たった: その場で下に落ちる。
+    const top = z;
+    for (let i = 1; i <= 6; i += 1) {
+      z = top * (1 - (i / 6) ** 2);
+      frames.push(frame());
+    }
+  }
   return {
     frames,
     fps: FPS,
     durationMs: Math.round(((frames.length - 1) / FPS) * 1000),
+    landMs,
     n,
     stop: { x: Math.round(x), y: Math.round(y) },
     where,

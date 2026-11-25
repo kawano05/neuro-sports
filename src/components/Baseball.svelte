@@ -4,9 +4,13 @@
   //
   // 本塁の上で円盤（回転台）が回り、ふちのボールが黄色い帯（あたる ところ）に来たときに
   // 押すと、三塁側のバットが横に振れて打てる。帯の真ん中のオレンジに近いほど、
-  // まっすぐ強く転がる。
+  // まっすぐ強く、高く飛ぶ。
   //
-  // 打つと、カメラが盤全体へ引いて、ボールが転がるのを追う。フェンスの区画・穴・止まった場所で
+  // 当たった瞬間に、ほんの少し止めて（ヒットストップ）カメラを少し寄せ、手ごたえを出す。
+  // ボールは飛んで（影は地面に残り、ボールは上がって大きく見える）、落ちて「トン」、はねて、転がる。
+  // 飛んだ道すじは白い線で残す（どこへ飛んだか分かる）。強い当たりはフェンスをこえてスタンドへ。
+  //
+  // 打つと、カメラが盤全体へ引いて、ボールを追う。フェンスの区画・穴・止まった場所で
   // 結果が決まる（ヒット・ツーベース・スリーベース・ホームラン・アウト）。止まったら結果を出し、
   // 少し見せてから、またバッターボックスへ寄る。塁・点・アウトは右上の札にまとめる。
   //
@@ -20,6 +24,9 @@
   import { session, audio, bus, predicted } from "../lib/app.js";
   import { playerById, TURN_GUARD_MS } from "../lib/engine.js";
   import {
+    CONTACT_MS,
+    HIT_STOP_MS,
+    LAUNCH_DELAY_MS,
     FENCE_R,
     LINE_R,
     fenceR,
@@ -53,6 +60,7 @@
     const loop = () => {
       now = session.hostNow();
       scheduleCues(now);
+      checkLanding(now);
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -132,6 +140,9 @@
     });
   }).flat();
 
+  /** 高さを、画面の上へのずれにする割合（少し後ろから見ている形）。 */
+  const LIFT = 1;
+
   // --- カメラ ------------------------------------------------------------
   const BOX_VIEW = { x: 410, y: 925, w: 180, h: 125 };
   const FIELD_VIEW = { x: 20, y: 170, w: 960, h: 880 };
@@ -142,13 +153,16 @@
 
   // --- バット（押した瞬間に振る） ------------------------------------------
   let swingAt = $state(-Infinity);
-  function batAngle(dt) {
-    if (!(dt >= 0) || dt > 520) return REST;
-    if (dt < 90) return lerp(REST, CONTACT, easeIn(dt / 90));
-    if (dt < 200) return lerp(CONTACT, FOLLOW, easeOut((dt - 90) / 110));
-    return lerp(FOLLOW, REST, easeInOut((dt - 200) / 320));
+  /** dt: 振りはじめからの時間。hold: 当たった形で止める時間（当たったときだけ）。 */
+  function batAngle(dt, hold) {
+    if (!(dt >= 0)) return REST;
+    if (dt < CONTACT_MS) return lerp(REST, CONTACT, easeIn(dt / CONTACT_MS));
+    if (dt < CONTACT_MS + hold) return CONTACT;
+    const t = dt - hold;
+    if (t > 520) return REST;
+    if (t < 200) return lerp(CONTACT, FOLLOW, easeOut((t - CONTACT_MS) / (200 - CONTACT_MS)));
+    return lerp(FOLLOW, REST, easeInOut((t - 200) / 320));
   }
-  const batDeg = $derived(batAngle(now - swingAt));
 
   /** 当たりのよさから、打った音の強さ（1〜4）。 */
   const soundLevel = (q) => (q >= 0.85 ? 4 : q >= 0.6 ? 3 : q >= 0.35 ? 2 : 1);
@@ -195,41 +209,66 @@
     };
   });
 
-  const showBallOnDisc = $derived(bb && bb.phase === "spin" && !hit);
-  const burst = $derived(hit && now - hit.t >= 0 && now - hit.t < 320 ? clamp01((now - hit.t) / 320) : null);
+  const batDeg = $derived(batAngle(now - swingAt, hit && hit.t === swingAt ? HIT_STOP_MS : 0));
 
-  // カメラ: 打つと引いて、次のボールの前に戻る。
+  const showBallOnDisc = $derived(bb && bb.phase === "spin" && !hit);
+  // 当たった形になった瞬間に、星がはじける。
+  const sinceContact = $derived(hit ? now - hit.t - CONTACT_MS : -1);
+  const burst = $derived(sinceContact >= 0 && sinceContact < 320 ? clamp01(sinceContact / 320) : null);
+
+  // カメラ: 当たった瞬間に少しだけ寄り（1.04倍、0.18秒）、飛び出したら引いて、次のボールの前に戻る。
   const camMix = $derived.by(() => {
     if (!hit) return 0;
-    const out = easeInOut(clamp01((now - hit.t - 140) / 620));
+    const out = easeInOut(clamp01((now - hit.t - LAUNCH_DELAY_MS) / 620));
     const back = bb?.nextAt ? easeInOut(clamp01((now - (bb.nextAt - 700)) / 700)) : 0;
     return out * (1 - back);
   });
-  const view = $derived({
-    x: lerp(BOX_VIEW.x, FIELD_VIEW.x, camMix),
-    y: lerp(BOX_VIEW.y, FIELD_VIEW.y, camMix),
-    w: lerp(BOX_VIEW.w, FIELD_VIEW.w, camMix),
-    h: lerp(BOX_VIEW.h, FIELD_VIEW.h, camMix),
+  const punch = $derived(sinceContact >= 0 && sinceContact < 180 ? 1 + 0.04 * Math.sin((Math.PI * sinceContact) / 180) : 1);
+  const view = $derived.by(() => {
+    const vw = lerp(BOX_VIEW.w, FIELD_VIEW.w, camMix);
+    const vh = lerp(BOX_VIEW.h, FIELD_VIEW.h, camMix);
+    const cx = lerp(BOX_VIEW.x, FIELD_VIEW.x, camMix) + vw / 2;
+    const cy = lerp(BOX_VIEW.y, FIELD_VIEW.y, camMix) + vh / 2;
+    return { x: cx - vw / punch / 2, y: cy - vh / punch / 2, w: vw / punch, h: vh / punch };
   });
   /** いまの画面で、1単位が何ピクセルか。 */
   const ppu = $derived(w && h ? Math.min(w / view.w, h / view.h) : 1);
   const ballR = $derived(Math.max(BALL * S, 14 / ppu));
 
-  // 転がる球（ホストが計算したコマを、時刻に合わせて見せる）。
+  // 飛ぶ球（ホストが計算したコマを、時刻に合わせて見せる）。コマは [x, y, 高さ]。
+  // 飛び出すまで（ヒットストップの間）は、バットの前にとどまる。
   const rolling = $derived.by(() => {
     const roll = bb?.roll;
-    if (!roll || !bb.hit) return null;
-    const f = Math.max(0, ((now - bb.hit.t) / 1000) * roll.fps);
+    if (!roll || !bb.hit) {
+      // この端末で先に当たったが、ホストの計算がまだ届いていない: バットの前に見せておく。
+      if (hit && now - hit.t < LAUNCH_DELAY_MS + 400) return { x: LAUNCH.x, y: LAUNCH.y, z: 0, stopped: false, inPocket: false, path: "" };
+      return null;
+    }
+    const f = Math.max(0, ((now - bb.hit.t - LAUNCH_DELAY_MS) / 1000) * roll.fps);
     const i = Math.min(roll.frames.length - 1, Math.floor(f));
     const j = Math.min(roll.frames.length - 1, i + 1);
     const k = f - Math.floor(f);
-    const [x0, y0] = roll.frames[i];
-    const [x1, y1] = roll.frames[j];
-    const stopped = i >= roll.frames.length - 1;
-    // 打った直後だけ、少しはねる。
-    const hop = Math.max(0, Math.sin(Math.PI * Math.min(1, (now - bb.hit.t) / 420))) * (0.4 + roll.q * 0.5);
-    return { x: lerp(x0, x1, k), y: lerp(y0, y1, k), stopped, hop: stopped ? 0 : hop, inPocket: roll.where.kind === "pocket" };
+    const [x0, y0, z0 = 0] = roll.frames[i];
+    const [x1, y1, z1 = 0] = roll.frames[j];
+    const x = lerp(x0, x1, k);
+    const y = lerp(y0, y1, k);
+    const z = lerp(z0, z1, k);
+    // 飛んだ道すじ（空の上の線）。
+    const pts = roll.frames.slice(0, i + 1).map(([px, py, pz = 0]) => `${px} ${(py - pz * LIFT).toFixed(0)}`);
+    pts.push(`${x.toFixed(0)} ${(y - z * LIFT).toFixed(0)}`);
+    return { x, y, z, stopped: i >= roll.frames.length - 1, inPocket: roll.where.kind === "pocket", path: `M ${pts.join(" L ")}` };
   });
+
+  // 落ちた「トン」（ボールごとに1回）。
+  let landedFor = null;
+  function checkLanding(t) {
+    const b = get(session).state?.baseball;
+    if (!b?.roll?.landMs || !b.hit || landedFor === b.ballFrom) return;
+    const at = b.hit.t + LAUNCH_DELAY_MS + b.roll.landMs;
+    if (t < at) return;
+    landedFor = b.ballFrom;
+    if (t < at + 300) audio.land();
+  }
 
   // ホームランの はなび（センターのスタンドの上）。
   const fireworks = $derived.by(() => {
@@ -399,15 +438,20 @@
       {/if}
     </g>
 
-    <!-- 転がる球: 通った線・止まったところの輪・影・球 -->
+    <!-- 飛ぶ球: 地面の線・飛んだ道すじ・止まったところの輪・影・球 -->
     {#if rolling}
-      <line x1={LAUNCH.x} y1={LAUNCH.y} x2={rolling.x} y2={rolling.y} stroke="#FFFFFF" stroke-width={4 / ppu} stroke-linecap="round" opacity="0.8" />
-      {#if bb.phase === "result"}
+      {@const air = clamp01(rolling.z / 200)}
+      <line x1={LAUNCH.x} y1={LAUNCH.y} x2={rolling.x} y2={rolling.y} stroke="#FFFFFF" stroke-width={3 / ppu} stroke-linecap="round" opacity="0.35" />
+      {#if rolling.path}
+        <path d={rolling.path} fill="none" stroke="#FFFFFF" stroke-width={4 / ppu} stroke-linecap="round" stroke-linejoin="round" opacity="0.85" />
+      {/if}
+      {#if bb?.phase === "result"}
         {@const k = clamp01((now - bb.resultAt) / 500)}
         <circle cx={rolling.x} cy={rolling.y} r={(14 + 30 * easeOut(k)) / ppu} fill="none" stroke="#FFFFFF" stroke-width={5 / ppu} opacity={(1 - k * 0.6).toFixed(2)} />
       {/if}
-      <ellipse cx={rolling.x} cy={rolling.y} rx={ballR * 0.95} ry={ballR * 0.5} fill="#1A1A1A" opacity="0.28" />
-      <g transform={`translate(${rolling.x.toFixed(1)} ${(rolling.y - rolling.hop * (40 / ppu)).toFixed(1)}) scale(${((ballR / BALL) * (rolling.stopped && rolling.inPocket ? 0.75 : 1 + rolling.hop * 0.3)).toFixed(3)})`}>
+      <!-- 影は地面に残る（高く上がるほど小さく、うすく） -->
+      <ellipse cx={rolling.x} cy={rolling.y} rx={ballR * 0.95 * (1 - air * 0.4)} ry={ballR * 0.5 * (1 - air * 0.4)} fill="#1A1A1A" opacity={(0.3 * (1 - air * 0.5)).toFixed(2)} />
+      <g transform={`translate(${rolling.x.toFixed(1)} ${(rolling.y - rolling.z * LIFT).toFixed(1)}) scale(${((ballR / BALL) * (rolling.stopped && rolling.inPocket ? 0.75 : 1 + rolling.z / 220)).toFixed(3)})`}>
         <circle r={BALL} fill="#FFFFFF" stroke="#1A1A1A" stroke-width="5" />
         <path d="M-11 -18 Q 1 0 -11 18 M11 -18 Q -1 0 11 18" fill="none" stroke="#E0302D" stroke-width="3.6" />
       </g>

@@ -7,6 +7,7 @@ import {
   offsetFromSweet,
   simulateHit,
   wallResult,
+  fenceR,
   OUT,
   SPIN_PERIOD_MS,
 } from "../src/lib/games/baseball.js";
@@ -69,9 +70,37 @@ const zero = () => 0.25;
 
 test("真ん中で打つと（ばらつきが無ければ）、まっすぐフェンスのホームランの区画へ", () => {
   const r = simulateHit(0, 600, zero);
-  assert.equal(r.where.kind, "wall");
+  assert.ok(["wall", "over"].includes(r.where.kind), r.where.kind);
   assert.equal(r.n, 4);
   assert.ok(r.frames.length > 10);
+});
+
+test("打ったボールは飛んで、落ちて、転がる（コマに高さがある）", () => {
+  const r = simulateHit(-60, 600, zero);
+  const heights = r.frames.map((f) => f[2]);
+  assert.equal(heights[0], 0, "飛び出す時は地面");
+  assert.ok(Math.max(...heights) > 60, `高く上がる: ${Math.max(...heights)}`);
+  assert.equal(heights.at(-1), 0, "おわりは地面");
+  assert.ok(r.landMs > 0 && r.landMs < r.durationMs);
+});
+
+test("飛んでいる間は、穴に落ちない（センターの穴を飛びこえる）", () => {
+  // ばらつき無しで真ん中: センターの穴（本塁から 470）の上を通る。
+  const r = simulateHit(0, 600, zero);
+  assert.notEqual(r.where.kind, "pocket");
+});
+
+test("落ちる前にホームランの区画に届いたら、フェンスをこえてスタンドに入る", () => {
+  let found = null;
+  for (let i = 1; i < 3000 && !found; i += 1) {
+    let k = i;
+    const r = simulateHit(0, 600, () => ((k = (k * 48271) % 2147483647) / 2147483647));
+    if (r.where.kind === "over") found = r;
+  }
+  assert.ok(found, "フェンスごえが起きる");
+  assert.equal(found.n, 4);
+  const s = (Math.atan2(found.stop.x - 500, 1000 - found.stop.y) * 180) / Math.PI;
+  assert.ok(Math.hypot(found.stop.x - 500, found.stop.y - 1000) > fenceR(s), "スタンドの中で止まる");
 });
 
 test("早く振ると左、遅く振ると右へ飛ぶ", () => {
@@ -80,10 +109,21 @@ test("早く振ると左、遅く振ると右へ飛ぶ", () => {
   assert.ok(early.stop.x < 500 && late.stop.x > 500, `${early.stop.x} / ${late.stop.x}`);
 });
 
-test("端で打つと弱く、フェンスに届かずに止まってアウト", () => {
-  const r = simulateHit(480, 600, zero);
-  assert.equal(r.n, OUT);
-  assert.notEqual(r.where.kind, "wall");
+test("端で打つと線ぞいに飛び、線ぞいのヒットの区画にも届く", () => {
+  for (const offset of [-520, 520]) {
+    const r = simulateHit(offset, 600, zero);
+    assert.equal(r.where.kind, "wall", `${offset}: ${r.where.kind}`);
+    assert.equal(r.n, 1);
+  }
+});
+
+test("線ぞいのヒットの区画は、ねらえば 2割くらい当たる（以前は1割）", () => {
+  let seed = 9;
+  const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  let hits = 0;
+  const N = 2000;
+  for (let i = 0; i < N; i += 1) if (simulateHit(540, 600, rng).n === 1) hits += 1;
+  assert.ok(hits / N > 0.15, `${hits / N}`);
 });
 
 test("野手の位置の穴に、ゆっくり来たボールが落ちたらアウト", () => {

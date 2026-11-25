@@ -10,6 +10,7 @@
 // =====================================================================
 
 import {
+  LAUNCH_DELAY_MS,
   OUT,
   OUTS_PER_HALF,
   RESULT_MS,
@@ -475,7 +476,8 @@ function pressBaseball(s, action, now, rng) {
   bb.phase = "flight";
   bb.hit = { t: action.t, playerId, offset: Math.round(offset), q: roll.q, team: bb.batting };
   bb.roll = roll;
-  bb.resultAt = action.t + roll.durationMs;
+  // 当たった瞬間に少し止めて（ヒットストップ）から飛び出し、止まったら結果。
+  bb.resultAt = action.t + LAUNCH_DELAY_MS + roll.durationMs;
   bb.nextAt = bb.resultAt + RESULT_MS;
   pushEvent(s, now, { kind: "swing", playerId, contact: true, q: roll.q, pid: action.pid, offset: Math.round(offset) });
   return true;
